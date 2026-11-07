@@ -1,0 +1,37 @@
+services:
+  nexus:
+    build:
+      context: .
+      args:
+        NEXUS_VERSION: latest
+    image: local/nexus:latest
+    container_name: nexus
+    hostname: nexus
+    restart: unless-stopped
+    user: nexus # never root
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: "-Xms1024m -Xmx2048m -XX:MaxDirectMemorySize=2048m"
+      # Custom secret-encryption key (replaces Nexus' shared default key), read from nexus/.env (gitignored)
+      NEXUS_SECRET_KEY_ID: ${NEXUS_SECRET_KEY_ID}
+      NEXUS_SECRET_KEY: ${NEXUS_SECRET_KEY}
+    ports:
+      - "8081:8081" # UI + Maven
+      - "8082:8082" # Docker hosted (push)
+      - "8083:8083" # Docker group (pull)
+    volumes:
+      - nexus_data:/nexus-data
+    healthcheck: # defined here because Podman ignores HEALTHCHECK in OCI images
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/service/rest/v1/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 10
+    networks:
+      - ci-net
+
+networks:
+  ci-net:
+    external: true
+
+volumes:
+  nexus_data:
