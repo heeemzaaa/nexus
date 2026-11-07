@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+@import 'tailwindcss';
+
+@theme {
+    --color-primary: #F0F5F9;
+    --color-secondary: #C9D6DF;
+    --color-accent: #52616B;
+    --color-dark: #1E2022;
+}
+html,body{
+  min-height: 100vh;
+}
+
+* {
+    font-family: "Inter", sans-serif;
+    box-sizing: border-box;
+    word-break: break-all;
+}
+
+html, body { height: 100%; }
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }

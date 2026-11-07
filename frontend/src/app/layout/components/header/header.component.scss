@@ -1,0 +1,57 @@
+.logo::before {
+    content: '';
+    width: 4px;
+    height: 40px;
+    background-color: var(--color-accent);
+}
+
+.profile::before {
+    content: '';
+    width: 2px;
+    opacity: .5;
+    height: 30px;
+    background-color: var(--color-accent);
+}
+
+.profile {
+    transition: .2s;
+}
+
+.profile:hover {
+    background-color: var(--color-secondary);
+    transition: .2s;
+}
+
+nav ul svg:hover,
+nav ul svg:hover>path {
+    color: var(--color-accent);
+    stroke: var(--color-accent);
+}
+
+nav ul li:hover {
+    span {
+        display: block;
+    }
+}
+
+nav ul li.active {
+
+    svg,
+    svg>path {
+        color: var(--color-accent);
+        stroke: var(--color-accent);
+    }
+}
+
+.dropdown-profile-menu .options p {
+    padding: 10px;
+    border-radius: 8px;
+    font-size: .9em;
+    transition: .2s;
+
+    &:hover {
+        background-color: var(--color-secondary);
+        font-weight: 600;
+        transition: .2s;
+    }
+}

@@ -1,0 +1,26 @@
+<div class=" m-auto container grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10 justify-items-center pb-6 pt-3">
+  @if (loading()) {
+  <div class="col-span-full flex justify-center items-center min-h-[400px]">
+    <div class="flex flex-col items-center gap-4">
+      <div class="h-10 w-10 animate-spin rounded-full border-4 border-secondary border-t-dark"></div>
+      <p class="text-accent font-medium">Curating products for you...</p>
+    </div>
+  </div>
+  } @else {
+  @for (item of products(); track item.id) {
+  <app-product-card [product]="item" class="w-full max-w-sm" />
+  } @empty {
+  <div class="col-span-full flex flex-col justify-center items-center min-h-[400px] text-center">
+    <div class="mb-4 rounded-full bg-secondary p-6">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+        class="h-12 w-12 text-accent">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+      </svg>
+    </div>
+    <p class="text-2xl font-bold text-dark">No products found</p>
+    <p class="mt-2 text-accent">Check back later or try a different category.</p>
+  </div>
+  }
+  }
+</div>

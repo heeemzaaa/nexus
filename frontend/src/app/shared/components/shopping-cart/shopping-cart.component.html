@@ -1,0 +1,80 @@
+<section class="fixed top-0 bg-gray-900/50 right-0 h-screen w-full z-100" (click)="closeCart.emit()">
+    <div animate.enter="enter-animation"
+        class="shopping-cart bg-primary fixed right-0 h-full flex flex-col overflow-auto shadow-2xl"
+        (click)="$event.stopPropagation()">
+        <div class="relative">
+            <span (click)="closeCart.emit()"
+                class="absolute right-5 top-5 text-2xl font-semibold cursor-pointer hover:text-accent">X</span>
+        </div>
+
+        <div class="cart-header text-center mt-10">
+            <h3 class="text-2xl font-semibold">Shopping cart</h3>
+        </div>
+        <div class="cart-body p-5 mt-10 flex-1 flex flex-col gap-10 justify-between max-sm:text-[10px]">
+            <div class="items flex flex-col gap-6">
+                @for (item of items(); track item.id) {
+                <div class="w-full h-px bg-accent opacity-30"></div>
+                <div class="item flex gap-5">
+                    <div
+                        class="images w-35 h-35 max-sm:w-20 max-sm:h-20 shrink-0 rounded-md overflow-hidden bg-gray-300">
+                        <img class="w-full h-full object-cover" [src]="itemImage(item)">
+                    </div>
+                    <div class="flex flex-col justify-between">
+                        <div>
+                            <p> {{ item.product.name }} </p>
+                            <p class="mt-1"> <span>${{ (item.product.price * item.item_quantity).toFixed(2) }}</span> |
+                                <span>{{
+                                    item.product.quantity }} Units Available</span>
+                            </p>
+                        </div>
+                        <div class="flex gap-3 items-end">
+                            <div class="quantity-counter flex w-max rounded-md overflow-hidden">
+                                <button [disabled]="item.item_quantity <= 1" (click)="updateItem(item, false)"
+                                    class="bg-secondary text-3xl cursor-pointer p-2"><svg class="w-5 max-sm:w-2"
+                                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
+                                        <path
+                                            d="M96 320C96 302.3 110.3 288 128 288L512 288C529.7 288 544 302.3 544 320C544 337.7 529.7 352 512 352L128 352C110.3 352 96 337.7 96 320z" />
+                                    </svg></button>
+                                <input disabled class="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none
+                                    bg-secondary text-center w-20" type="number" [value]="item.item_quantity">
+                                <button [disabled]="item.item_quantity >= item.product.quantity"
+                                    (click)="updateItem(item, true)"
+                                    class="bg-secondary text-3xl cursor-pointer p-2"><svg class="w-5 max-sm:w-2"
+                                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
+                                        <path
+                                            d="M352 128C352 110.3 337.7 96 320 96C302.3 96 288 110.3 288 128L288 288L128 288C110.3 288 96 302.3 96 320C96 337.7 110.3 352 128 352L288 352L288 512C288 529.7 302.3 544 320 544C337.7 544 352 529.7 352 512L352 352L512 352C529.7 352 544 337.7 544 320C544 302.3 529.7 288 512 288L352 288L352 128z" />
+                                    </svg></button>
+                            </div>
+                            <button (click)="deleteItem(item.id)"
+                                class="underline cursor-pointer text-red-600">Remove</button>
+                        </div>
+                    </div>
+                </div>
+                } @empty {
+                <div class="col-span-full flex flex-col justify-center items-center min-h-100 text-center">
+                    <div class="mb-4 rounded-full bg-secondary p-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" class="h-12 w-12 text-accent">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                        </svg>
+                    </div>
+                    <p class="text-2xl font-bold text-dark">No items found</p>
+                    <p class="mt-2 text-accent">Add new items</p>
+                </div>
+                }
+            </div>
+            @if (items().length > 0) {
+            <div class="cart-footer">
+                <p class="mb-2 font-semibold">Pay on delivery</p>
+                <p class="bg-secondary py-3 px-6 flex justify-between font-semibold rounded-md"><span>Total: </span>
+                    <span>${{ totalPrice().toFixed(2) }}</span>
+                </p>
+                <button (click)="checkout()"
+                    class="bg-dark text-primary w-full py-3 px-6 my-2 cursor-pointer rounded-md hover:bg-accent transition duration-200">Check
+                    Out</button>
+            </div>
+            }
+        </div>
+    </div>
+</section>

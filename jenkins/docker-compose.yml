@@ -1,0 +1,22 @@
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+
+    container_name: jenkins-controller
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /run/user/1165/docker.sock:/var/run/docker.sock 
+    user: root 
+    networks:
+      - ci-net
+
+networks:
+  ci-net:
+    external: true
+    
+volumes:
+  jenkins_home:

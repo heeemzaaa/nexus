@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: order-service
+
+  mongodb:
+    uri: ${MONGO_URL:mongodb://buy01:buy01@localhost:27020/buy01?authSource=admin}
+
+  kafka:
+    bootstrap-servers: ${BROKER_URL:localhost:9092}
+    consumer:
+      group-id: productGroup
+
+server:
+  port: 8084
+  servlet:
+    context-path: /api
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER:http://localhost:8761/eureka}

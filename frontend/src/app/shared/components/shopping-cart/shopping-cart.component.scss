@@ -1,0 +1,33 @@
+.shopping-cart {
+    width: 480px;
+}
+
+.enter-animation {
+    animation: slide-fade .5s;
+}
+
+@keyframes slide-fade {
+    from {
+        opacity: 0;
+        width: 0;
+    }
+
+    to {
+        opacity: 1;
+        width: 480px;
+    }
+}
+
+.quantity-counter button:hover {
+
+    svg {
+        fill: var(--color-accent);
+    }
+
+}
+
+@media (max-width: 490px) {
+    .shopping-cart {
+        width: 100%;
+    }
+}

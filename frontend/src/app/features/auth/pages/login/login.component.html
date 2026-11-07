@@ -1,0 +1,18 @@
+<form class="text-center auth-form-ipts" [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+    <p class="text-xs -mt-8.5 mb-10 text-accent">Please login to your account</p>
+    <div>
+        <!-- @if (name.invalid) {
+        <span class="block text-red-500 -mt-3 mb-3">
+            @if (name.hasError('required')) {
+            User name cannot be empty
+            }
+        </span>
+        } -->
+        <input formControlName="email" placeholder="Email address" type="email">
+        <input formControlName="password" placeholder="Password" type="password">
+    </div>
+    <button
+        class="bg-dark mb-5 text-primary w-[90%] p-4 text-sm rounded-lg hover:bg-accent cursor-pointer duration-150">Login</button>
+    <p routerLink="/auth/register"><span>New here?</span> <a
+            class="text-accent underline ml-1 cursor-pointer">Sign-up</a></p>
+</form>

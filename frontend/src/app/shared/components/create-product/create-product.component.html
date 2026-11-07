@@ -1,0 +1,94 @@
+<section class="fixed w-full h-full top-0 left-0 z-50 bg-black/50 items-center justify-center px-4 overflow-y-scroll">
+    <div (click)="$event.stopPropagation()"
+        class="relative w-full max-w-xl my-10 m-auto bg-primary shadow-xl rounded-2xl p-8 border border-secondary">
+        <div (click)="closeModal()"
+            class="close absolute right-5 top-3 text-3xl cursor-pointer hover:text-accent transition duration-75">
+            x
+        </div>
+
+        <h2 class="text-2xl font-semibold text-dark mb-6 text-center">
+            @if (product()) {
+            Update Product
+            } @else {
+            Create Product
+            }
+        </h2>
+
+        <form [formGroup]="productForm" (ngSubmit)="onSubmit()" class="flex flex-col gap-5">
+            <input maxlength="30" formControlName="name" type="text" placeholder="Name..."
+                class="w-full px-4 py-3 rounded-lg border border-secondary bg-primary text-dark placeholder-accent focus:outline-none focus:ring-2 focus:ring-accent transition" />
+            <span class="text-red-500 -my-3">
+                @if (name.hasError('required')) {
+                {{ name.getError("required") }}
+                } @else if (productForm.hasError("name")) {
+                {{ productForm.getError("name") }}
+                }
+            </span>
+
+            <textarea maxlength="255" formControlName="description" placeholder="Description..."
+                class="w-full resize-none px-4 py-3 rounded-lg border border-secondary bg-primary text-dark placeholder-accent focus:outline-none focus:ring-2 focus:ring-accent transition"></textarea>
+            <span class="text-red-500 -my-3">
+                @if (description.hasError('required')) {
+                {{ description.getError("required") }}
+                } @else if (productForm.hasError("description")) {
+                {{ productForm.getError("description") }}
+                }
+            </span>
+            <input formControlName="price" type="number" step="0.01" placeholder="Price..."
+                class="w-full px-4 py-3 rounded-lg border border-secondary bg-primary text-dark placeholder-accent focus:outline-none focus:ring-2 focus:ring-accent transition" />
+            <span class="text-red-500 -my-3">
+                @if (price.hasError('required')) {
+                {{ price.getError("required") }}
+                } @else if (productForm.hasError("price")) {
+                {{ productForm.getError("price") }}
+                }
+            </span>
+            <input formControlName="quantity" type="number" placeholder="Quantity..."
+                class="w-full px-4 py-3 rounded-lg border border-secondary bg-primary text-dark placeholder-accent focus:outline-none focus:ring-2 focus:ring-accent transition" />
+            <span class="text-red-500 -my-3">
+                @if (quantity.hasError('required')) {
+                {{ quantity.getError("required") }}
+                } @else if (productForm.hasError("quantity")) {
+                {{ productForm.getError("quantity") }}
+                }
+            </span>
+            <div class="flex flex-col gap-2">
+                <label class="text-sm text-accent font-medium">Upload Media: <span
+                        [ngClass]="{'max-media': media().length >= 5}"> {{ media().length }} / 5 </span></label>
+
+                <input accept=".jpg,.jpeg,.png,.gif,.webp,.bmp" (change)="onMediaChange($event)" type="file"
+                    class="w-full text-sm text-accent file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-accent file:text-primary hover:file:bg-dark transition cursor-pointer" />
+            </div>
+
+            <div class="grid grid-cols-3 gap-3 mt-2">
+                @for (m of media(); track $index) {
+                <div class="relative group">
+                    <img [src]="m.url" alt="product image"
+                        class="w-full h-24 object-cover rounded-lg border border-secondary group-hover:scale-105 transition duration-300" />
+
+                    <button (click)="removeMedia($index)" type="button"
+                        class="absolute top-1 right-1 bg-dark/70 text-primary w-6 h-6 rounded-full flex items-center justify-center text-xs hover:bg-dark transition opacity-0 group-hover:opacity-100">
+                        ✕
+                    </button>
+                </div>
+                }
+            </div>
+            @if (mediaError()) {
+            <span class="text-red-500 -my-5">
+                {{ mediaError() }}
+            </span>
+            }
+
+            <button type="submit"
+                class="mt-4 w-full cursor-pointer bg-dark text-primary py-3 rounded-lg font-semibold hover:bg-accent transition shadow-md">
+                @if (creatingProduct()) {
+                <div class="create-product-loader m-auto">Loading...</div>
+                } @else if (product()) {
+                Update Product
+                } @else {
+                Create Product
+                }
+            </button>
+        </form>
+    </div>
+</section>

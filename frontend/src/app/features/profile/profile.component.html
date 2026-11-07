@@ -1,0 +1,92 @@
+@if (profileError()) {
+<section class="min-h-[70vh] flex flex-col items-center justify-center text-center">
+
+    <h1 class="text-8xl font-bold text-accent">404</h1>
+
+    <h2 class="text-3xl font-semibold mt-4">
+        Profile Not Found
+    </h2>
+
+    <p class="text-accent mt-3 max-w-md">
+        We couldn't find the profile you requested.
+    </p>
+
+    <button routerLink="/"
+        class="mt-8 cursor-pointer px-6 py-3 rounded-lg bg-dark text-white hover:bg-accent transition">
+        Go Home
+    </button>
+
+</section>
+} @else {
+<section>
+    <div class="infos flex flex-col items-center mt-10 gap-3 z-10">
+        <div class="relative w-30 h-30 border-secondary border-4 rounded-[50%]">
+            @if (isProfileImageUpdating()) {
+            <div class="photo-profile-loader"></div>
+            } @else {
+            <img class="rounded-[50%] w-full h-full object-cover"
+                [src]="userProfile()?.avatar || `https://ui-avatars.com/api/?name=${userProfile()?.name}&background=random`"
+                alt="image profile">
+            @if (authStateService.currentUser()?.id === userProfile()?.id) {
+            <label for="photo-profile" class="absolute bottom-0 right-0 bg-dark rounded-[50%] p-2 cursor-pointer">
+                <svg class="w-5 fill-primary" xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 640 640"><!--!Font Awesome Free v7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2026 Fonticons, Inc.-->
+                    <path
+                        d="M257.1 96C238.4 96 220.9 105.4 210.5 120.9L184.5 160L128 160C92.7 160 64 188.7 64 224L64 480C64 515.3 92.7 544 128 544L512 544C547.3 544 576 515.3 576 480L576 224C576 188.7 547.3 160 512 160L455.5 160L429.5 120.9C419.1 105.4 401.6 96 382.9 96L257.1 96zM250.4 147.6C251.9 145.4 254.4 144 257.1 144L382.8 144C385.5 144 388 145.3 389.5 147.6L422.7 197.4C427.2 204.1 434.6 208.1 442.7 208.1L512 208.1C520.8 208.1 528 215.3 528 224.1L528 480.1C528 488.9 520.8 496.1 512 496.1L128 496C119.2 496 112 488.8 112 480L112 224C112 215.2 119.2 208 128 208L197.3 208C205.3 208 212.8 204 217.3 197.3L250.5 147.5zM320 448C381.9 448 432 397.9 432 336C432 274.1 381.9 224 320 224C258.1 224 208 274.1 208 336C208 397.9 258.1 448 320 448zM256 336C256 300.7 284.7 272 320 272C355.3 272 384 300.7 384 336C384 371.3 355.3 400 320 400C284.7 400 256 371.3 256 336z" />
+                </svg>
+                <input (change)="onProfileImageChange($event)" class="hidden" type="file" id="photo-profile">
+            </label>
+            }
+            }
+        </div>
+        <h3 class="text-2xl font-semibold">{{ userProfile()?.name }}</h3>
+        <div class="text-center">
+            <p class="flex items-center gap-1"><svg class="w-5" xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 640 640">
+                    <path
+                        d="M112 128C85.5 128 64 149.5 64 176C64 191.1 71.1 205.3 83.2 214.4L291.2 370.4C308.3 383.2 331.7 383.2 348.8 370.4L556.8 214.4C568.9 205.3 576 191.1 576 176C576 149.5 554.5 128 528 128L112 128zM64 260L64 448C64 483.3 92.7 512 128 512L512 512C547.3 512 576 483.3 576 448L576 260L377.6 408.8C343.5 434.4 296.5 434.4 262.4 408.8L64 260z" />
+                </svg> <span class="text-md">{{ userProfile()?.email }}</span></p>
+            <p class="flex items-center gap-2 justify-center text-accent font-semibold"><span>{{ userProfile()?.role
+                    }}</span></p>
+        </div>
+        <!-- <div class="w-30 h-[1px] bg-accent"></div> -->
+    </div>
+    @if (authStateService.currentUser()?.id === userProfile()?.id && authStateService.currentUser()?.role?.toString() == 'SELLER') {
+    <div class="text-center"><button (click)="isCreateProductVisible.set(true)"
+            class="mt-3 bg-dark py-3 px-6 rounded-lg cursor-pointer hover:bg-accent transform duration-150 text-white">
+            Create product
+        </button></div>
+    }
+    @if (isCreateProductVisible()) {
+    <app-create-product (close)="isCreateProductVisible.set(false)" />
+    }
+
+    <!-- Switcher for Seller profile (only when viewing own profile) -->
+    @if (userProfile()?.role?.toString() === 'SELLER' && authStateService.currentUser()?.id === userProfile()?.id) {
+    <div class="flex justify-center gap-4 my-6">
+        <button (click)="sellerTab.set('PRODUCTS')"
+            [class]="'px-6 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer ' + (sellerTab() === 'PRODUCTS' ? 'bg-dark text-white shadow-sm' : 'border border-secondary text-accent hover:text-dark')">
+            My Products
+        </button>
+        <button (click)="sellerTab.set('SOLD')"
+            [class]="'px-6 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer ' + (sellerTab() === 'SOLD' ? 'bg-dark text-white shadow-sm' : 'border border-secondary text-accent hover:text-dark')">
+            Sold Products
+        </button>
+    </div>
+    }
+
+    <div class="products my-10">
+        @if (userProfile()?.id && userProfile()?.role?.toString() === 'SELLER') {
+            @if (authStateService.currentUser()?.id !== userProfile()?.id || sellerTab() === 'PRODUCTS') {
+            <app-product-list [userId]="userProfile()?.id" />
+            <app-paginator [userId]="userProfile()?.id" />
+            } @else if (sellerTab() === 'SOLD') {
+            <app-seller-sold-list />
+            }
+        }
+        @if (userProfile()?.id && userProfile()?.role?.toString() === 'CLIENT' && authStateService.currentUser()?.id === userProfile()?.id) {
+        <app-order-list />
+        }
+    </div>
+</section>
+}

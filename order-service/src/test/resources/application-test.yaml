@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: order-service-test
+
+  mongodb:
+      uri: ${MONGO_URL:mongodb://buy01:buy01@localhost:27020/buy01?authSource=admin}
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.cloud.netflix.eureka.EurekaClientAutoConfiguration
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+server:
+  servlet:
+    context-path: ""
