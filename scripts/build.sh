@@ -7,6 +7,10 @@ set -e
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+MAVEN_SETTINGS_ARGS=()
+if [[ -n "${MAVEN_SETTINGS:-}" ]]; then
+    MAVEN_SETTINGS_ARGS=(-s "$MAVEN_SETTINGS")
+fi
 
 echo -e "${BLUE}🔨 Starting Multi-Service Build Process...${NC}\n"
 
@@ -31,7 +35,7 @@ for SERVICE in "${SERVICES[@]}"; do
             # Ensure Maven Wrapper is executable
             chmod +x mvnw
             # Clean and Package
-            ./mvnw clean package -DskipTests -DNEXUS_HOST=localhost
+            ./mvnw "${MAVEN_SETTINGS_ARGS[@]}" clean package -DskipTests -DNEXUS_HOST="${NEXUS_HOST:-localhost}"
         )
         
         echo -e "${GREEN}✅ Successfully built $SERVICE${NC}\n"

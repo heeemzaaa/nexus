@@ -135,6 +135,28 @@ The application will be available at `https://localhost:4200`.
 
 The CI/CD pipeline is fully implemented for automated build, test, and quality gate execution. To run the pipeline, Jenkins should be configured locally.
 
+## 📦 Nexus Artifact Repository
+
+The Nexus service is defined in `nexus/docker-compose.yml` and runs as the non-root `nexus` user. Start it on the same Docker network as Jenkins:
+
+```bash
+docker network create ci-net # skip if it already exists
+cp nexus/.env.example nexus/.env
+# Set NEXUS_SECRET_KEY in nexus/.env to a unique value
+docker compose -f nexus/docker-compose.yml up -d --build
+```
+
+On first startup, retrieve the initial admin password with `docker exec nexus cat /nexus-data/admin.password`, sign in at `http://localhost:8081`, and change it. Create these Maven repositories in **Server administration → Repositories**:
+
+- `maven-releases`: hosted, release version policy.
+- `maven-snapshots`: hosted, snapshot version policy.
+- `maven-central`: proxy for `https://repo1.maven.org/maven2/`.
+- `maven-public`: group containing `maven-releases`, `maven-snapshots`, and `maven-central`.
+
+Create a least-privilege deployment user with read access to `maven-public` and add/edit access to both hosted repositories. Store it in Jenkins Credentials as a **Username with password** credential with ID `nexus-credentials`. The pipeline mirrors Maven dependency and plugin requests through `maven-public`, then publishes backend artifacts to the hosted repository matching each POM version (the services currently use `0.0.1-SNAPSHOT`). Publishing is skipped for pull requests.
+
+The Docker ports are exposed by the compose service (`8082` hosted push and `8083` group pull), but Docker repositories, image tagging/push, and pull verification still need to be configured and added to the pipeline. The backend POMs currently target Java 17, so the assignment's Java 11 constraint is also not met; changing that requires a compatible Spring Boot/Spring Cloud baseline.
+
 ---
 
 ## 📖 API Documentation

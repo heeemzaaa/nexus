@@ -5,11 +5,37 @@ pipeline {
         }
     }
 
+    environment {
+        NEXUS_HOST = 'nexus'
+    }
+
     stages {
+        stage('Configure Maven for Nexus') {
+            steps {
+                writeFile file: '.maven-settings.xml', text: '''<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+    <mirrors>
+        <mirror>
+            <id>nexus</id>
+            <mirrorOf>*</mirrorOf>
+            <url>http://nexus:8081/repository/maven-public/</url>
+        </mirror>
+    </mirrors>
+    <servers>
+        <server>
+            <id>nexus</id>
+            <username>${env.NEXUS_USERNAME}</username>
+            <password>${env.NEXUS_PASSWORD}</password>
+        </server>
+    </servers>
+</settings>
+'''
+            }
+        }
+
         stage('Build') {
             steps {
                 echo 'Building..'
-                sh './scripts/build.sh'
+                sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/build.sh'
                 sh '''
                 cd frontend
                 npm i
@@ -21,7 +47,7 @@ pipeline {
         stage('Test') {
             steps {
                 echo 'Testing..'
-                sh './scripts/test.sh'
+                sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/test.sh'
                 sh 'npm install --save-dev @vitest/coverage-v8'
                 sh 'cd frontend && ng test --watch=false --code-coverage'
             }
@@ -61,9 +87,11 @@ pipeline {
                                 withSonarQubeEnv('sonar-server') {
                                     sh """
                                     ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                                        -s "$WORKSPACE/.maven-settings.xml" \
                                         -Dsonar.projectKey=${svc} \
                                         -Dsonar.projectName=${svc} \
                                         -Dsonar.host.url=http://sonarqube:9000 \
+                                        -DNEXUS_HOST="$NEXUS_HOST" \
                                         -Dsonar.token=\$SONAR_TOKEN
                                     """
                                 }
@@ -73,6 +101,19 @@ pipeline {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        stage('Publish Maven Artifacts to Nexus') {
+            when {
+                not {
+                    changeRequest()
+                }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                    sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/deploy_to_nexus.sh'
                 }
             }
         }
@@ -141,6 +182,7 @@ pipeline {
 
     post {
         always {
+            sh 'rm -f .maven-settings.xml'
             junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
             archiveArtifacts artifacts: '**/target/surefire-reports/*.xml, frontend/coverage/**', allowEmptyArchive: true
         }
