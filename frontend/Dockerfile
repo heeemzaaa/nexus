@@ -37,7 +37,7 @@ COPY --chown=nginx:nginx --from=builder /app/dist/*/browser /usr/share/nginx/htm
 # Use a built-in non-root user for security best practices
 USER nginx
 
-EXPOSE 443
+EXPOSE 8443
 
 # Start Nginx directly with custom config
 ENTRYPOINT ["nginx", "-c", "/etc/nginx/nginx.conf"]
