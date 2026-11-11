@@ -9,7 +9,7 @@ services:
       - "50000:50000"
     volumes:
       - jenkins_home:/var/jenkins_home
-      - /run/user/1165/docker.sock:/var/run/docker.sock 
+      - ${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock
     user: root 
     networks:
       - ci-net
