@@ -7,6 +7,7 @@ pipeline {
 
     environment {
         NEXUS_HOST = 'nexus'
+        NEXUS_DOCKER_REGISTRY_HOST = 'nexus'
     }
 
     stages {
@@ -118,6 +119,19 @@ pipeline {
             }
         }
 
+        stage('Publish Docker Images to Nexus') {
+            when {
+                not {
+                    changeRequest()
+                }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                    sh 'NEXUS_DOCKER_PUSH_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8082" NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083" IMAGE_TAG="$GIT_COMMIT" ./scripts/publish_docker_to_nexus.sh'
+                }
+            }
+        }
+
         stage('Deliver') {
             when {
                 not {
@@ -129,7 +143,8 @@ pipeline {
                     file(credentialsId: 'buy01-env-file', variable: 'ENV_FILE'),
                     file(credentialsId: 'ssl-cert', variable: 'SSL_CERT'),
                     file(credentialsId: 'ssl-key', variable: 'SSL_KEY'),
-                    file(credentialsId: 'ssl-passphrase', variable: 'SSL_PASSPHRASE')
+                    file(credentialsId: 'ssl-passphrase', variable: 'SSL_PASSPHRASE'),
+                    usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')
                 ]) {
                     echo 'Deliver....'
 
@@ -143,8 +158,13 @@ pipeline {
                     script {
                         try {
                             sh '''
+                                trap 'docker logout "$NEXUS_DOCKER_REGISTRY_HOST:8083" >/dev/null 2>&1 || true' EXIT
+                                export NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083"
+                                export IMAGE_TAG="$GIT_COMMIT"
+                                printf '%s' "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY_HOST:8083" --username "$NEXUS_USERNAME" --password-stdin
+                                docker compose -p cartify pull discovery-service api-gateway user-service product-service media-service order-service angular-app
                                 docker compose -p cartify down
-                                docker compose -p cartify up -d --build
+                                docker compose -p cartify up -d --no-build
                                 docker compose ps
                             '''
                         } catch (err) {
@@ -152,9 +172,9 @@ pipeline {
                                 error 'Deploy failed and no previous successful commit exists to roll back to. Manual intervention required.'
                             }
 
-                            echo "Deploy failed — rolling back to ${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT}"
+                            echo "Deployment failed — rolling back to ${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT}"
                             sh '''
-                                docker compose -p cartify down
+                                trap 'docker logout "$NEXUS_DOCKER_REGISTRY_HOST:8083" >/dev/null 2>&1 || true' EXIT
                                 git checkout ${GIT_PREVIOUS_SUCCESSFUL_COMMIT}
 
                                 cp "$ENV_FILE" .env
@@ -162,16 +182,20 @@ pipeline {
                                 cp "$SSL_KEY" frontend/private.key
                                 cp "$SSL_PASSPHRASE" frontend/securePassphrase
 
-                                ./scripts/build.sh
-                                docker compose -p cartify up -d --build
+                                export NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083"
+                                export IMAGE_TAG="$GIT_PREVIOUS_SUCCESSFUL_COMMIT"
+                                printf '%s' "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY_HOST:8083" --username "$NEXUS_USERNAME" --password-stdin
+                                docker compose -p cartify pull discovery-service api-gateway user-service product-service media-service order-service angular-app
+                                docker compose -p cartify down
+                                docker compose -p cartify up -d --no-build
                             '''
                             error "Deployment failed, rolled back to previous successful commit ${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT}"
-                    } finally {
+                        } finally {
                             sh '''
-                            rm -f .env
-                            rm -f frontend/secureCertificate.crt
-                            rm -f frontend/private.key
-                            rm -f frontend/securePassphrase
+                                rm -f .env
+                                rm -f frontend/secureCertificate.crt
+                                rm -f frontend/private.key
+                                rm -f frontend/securePassphrase
                             '''
                         }
                     }

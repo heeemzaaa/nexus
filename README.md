@@ -155,7 +155,40 @@ On first startup, retrieve the initial admin password with `docker exec nexus ca
 
 Create a least-privilege deployment user with read access to `maven-public` and add/edit access to both hosted repositories. Store it in Jenkins Credentials as a **Username with password** credential with ID `nexus-credentials`. The pipeline mirrors Maven dependency and plugin requests through `maven-public`, then publishes backend artifacts to the hosted repository matching each POM version (the services currently use `0.0.1-SNAPSHOT`). Publishing is skipped for pull requests.
 
-The Docker ports are exposed by the compose service (`8082` hosted push and `8083` group pull), but Docker repositories, image tagging/push, and pull verification still need to be configured and added to the pipeline. The backend POMs currently target Java 17, so the assignment's Java 11 constraint is also not met; changing that requires a compatible Spring Boot/Spring Cloud baseline.
+Create these Docker repositories in **Server administration → Repositories**:
+
+- `docker-hosted`: hosted, HTTP connector port `8082`, allow redeploy for repeat builds of the same commit tag.
+- `dockerhub-proxy`: proxy for `https://registry-1.docker.io`.
+- `docker-group`: group, HTTP connector port `8083`, containing `docker-hosted` and `dockerhub-proxy`.
+
+Enable the **Docker Bearer Token Realm** under **Security → Realms**. Give the Jenkins deployment user read access to `docker-group` and add/edit access to `docker-hosted`; do not use the initial admin account for CI. Save the user in Jenkins Credentials as the existing `nexus-credentials` username/password credential.
+
+The Docker connector URLs above use HTTP. Configure the Docker daemon that performs builds and pulls to allow the exact registry hostnames used by that daemon (the Jenkins pipeline defaults to `nexus:8082` and `nexus:8083` via `NEXUS_DOCKER_REGISTRY_HOST`; local commands use `localhost:8082` and `localhost:8083`) as insecure registries, then restart the daemon. For Docker Engine, add both host:port entries to `insecure-registries` in `daemon.json`; for Podman, mark the corresponding registries insecure in `registries.conf`. Prefer TLS-enabled registry endpoints outside a local learning environment. The daemon must also be able to resolve and reach the selected hostnames.
+
+The pipeline builds seven application images, tags each with the full Git commit SHA, pushes them to `docker-hosted`, and deploys by pulling those tags through `docker-group`. Pull requests skip publishing and delivery. The frontend TLS certificate, private key, and passphrase are mounted at runtime and are not included in the published image layers.
+
+To publish locally after creating the repositories and configuring the local daemon:
+
+```bash
+export NEXUS_USERNAME='your-deploy-user'
+read -rsp 'Nexus password: ' NEXUS_PASSWORD; export NEXUS_PASSWORD; printf '\n'
+export NEXUS_DOCKER_PUSH_REGISTRY=localhost:8082
+export NEXUS_DOCKER_PULL_REGISTRY=localhost:8083
+export IMAGE_TAG="$(git rev-parse --short HEAD)"
+./scripts/build.sh
+./scripts/publish_docker_to_nexus.sh
+```
+
+Verify a pull through the group repository:
+
+```bash
+docker login localhost:8083
+NEXUS_DOCKER_PULL_REGISTRY=localhost:8083 IMAGE_TAG="$IMAGE_TAG" \
+  docker compose pull discovery-service api-gateway user-service product-service media-service order-service angular-app
+docker logout localhost:8083
+```
+
+The backend POMs currently target Java 17, so the assignment's Java 11 constraint is also not met; changing that requires a compatible Spring Boot/Spring Cloud baseline.
 
 ---
 

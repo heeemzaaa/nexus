@@ -27,6 +27,7 @@ services:
     #   - kafka-data:/var/lib/kafka/data # Map the DATA, not the LOGS
 
   discovery-service:
+    image: ${NEXUS_DOCKER_PULL_REGISTRY:-localhost:8083}/cartify/discovery-service:${IMAGE_TAG:-latest}
     build: ./discovery-service
     container_name: discovery-service
     restart: always
@@ -39,6 +40,7 @@ services:
       retries: 3
 
   api-gateway:
+    image: ${NEXUS_DOCKER_PULL_REGISTRY:-localhost:8083}/cartify/api-gateway:${IMAGE_TAG:-latest}
     build: ./api-gateway
     container_name: api-gateway
     depends_on:
@@ -103,8 +105,13 @@ services:
       - order_mongodb_data:/data/db
 
   angular-app:
+    image: ${NEXUS_DOCKER_PULL_REGISTRY:-localhost:8083}/cartify/angular-app:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
+    volumes:
+      - ./frontend/secureCertificate.crt:/etc/nginx/secureCertificate.crt:ro
+      - ./frontend/private.key:/etc/nginx/private.key:ro
+      - ./frontend/securePassphrase:/etc/nginx/securePassphrase:ro
     ports:
       - 4200:443
     depends_on:
@@ -112,6 +119,7 @@ services:
         condition: service_started
 
   user-service:
+    image: ${NEXUS_DOCKER_PULL_REGISTRY:-localhost:8083}/cartify/user-service:${IMAGE_TAG:-latest}
     build: ./user-service
     container_name: user-service
     depends_on:
@@ -127,6 +135,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
 
   product-service:
+    image: ${NEXUS_DOCKER_PULL_REGISTRY:-localhost:8083}/cartify/product-service:${IMAGE_TAG:-latest}
     build: ./product-service
     container_name: product-service
     depends_on:
@@ -142,6 +151,7 @@ services:
       - MONGO_URL=mongodb://buy01:buy01@product-db:27017/buy01?authSource=admin
 
   media-service:
+    image: ${NEXUS_DOCKER_PULL_REGISTRY:-localhost:8083}/cartify/media-service:${IMAGE_TAG:-latest}
     build: ./media-service
     container_name: media-service
     depends_on:
@@ -158,6 +168,7 @@ services:
       - CLOUDINARY_URL=${CLOUDINARY_URL}
 
   order-service:
+    image: ${NEXUS_DOCKER_PULL_REGISTRY:-localhost:8083}/cartify/order-service:${IMAGE_TAG:-latest}
     build: ./order-service
     container_name: order-service
     depends_on:
