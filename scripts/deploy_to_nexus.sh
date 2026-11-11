@@ -40,7 +40,8 @@ for SERVICE in "${SERVICES[@]}"; do
         cd "$SERVICE"
         ./mvnw "${MAVEN_SETTINGS_ARGS[@]}" deploy \
             -DskipTests \
-            -DNEXUS_HOST="$NEXUS_HOST"
+            -DNEXUS_HOST="$NEXUS_HOST" \
+            ${REVISION:+-Drevision="$REVISION"}
     )
 done
 

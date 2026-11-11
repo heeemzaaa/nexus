@@ -35,7 +35,7 @@ for SERVICE in "${SERVICES[@]}"; do
             # Ensure Maven Wrapper is executable
             chmod +x mvnw
             # Clean and Package
-            ./mvnw "${MAVEN_SETTINGS_ARGS[@]}" test -DNEXUS_HOST="${NEXUS_HOST:-localhost}"
+            ./mvnw "${MAVEN_SETTINGS_ARGS[@]}" test -DNEXUS_HOST="${NEXUS_HOST:-localhost}" ${REVISION:+-Drevision="$REVISION"}
         )
         
         echo -e "${GREEN}✅ Successfully tested $SERVICE${NC}\n"

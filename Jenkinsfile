@@ -7,7 +7,11 @@ pipeline {
 
     environment {
         NEXUS_HOST = 'nexus'
-        NEXUS_DOCKER_REGISTRY_HOST = 'nexus'
+        // "localhost", not "nexus": docker push/pull are performed by the host's Podman service
+        // behind the mounted socket, and the host can't resolve the "nexus" container name.
+        NEXUS_DOCKER_REGISTRY_HOST = 'localhost'
+        // Version of every Maven artifact and Docker image built by this run (read by scripts/*.sh)
+        REVISION = "1.0.${env.BUILD_NUMBER}"
     }
 
     stages {
@@ -93,6 +97,7 @@ pipeline {
                                         -Dsonar.projectName=${svc} \
                                         -Dsonar.host.url=http://sonarqube:9000 \
                                         -DNEXUS_HOST="$NEXUS_HOST" \
+                                        -Drevision="$REVISION" \
                                         -Dsonar.token=\$SONAR_TOKEN
                                     """
                                 }
@@ -127,7 +132,8 @@ pipeline {
             }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
-                    sh 'NEXUS_DOCKER_PUSH_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8082" NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083" IMAGE_TAG="$GIT_COMMIT" ./scripts/publish_docker_to_nexus.sh'
+                    // Each image gets two tags: $GIT_COMMIT (traceability, used by Deliver/rollback) and $REVISION (same as the Maven version)
+                    sh 'NEXUS_DOCKER_PUSH_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8082" NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083" IMAGE_TAG="$GIT_COMMIT" VERSION="$REVISION" ./scripts/publish_docker_to_nexus.sh'
                 }
             }
         }

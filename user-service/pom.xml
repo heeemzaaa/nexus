@@ -49,7 +49,7 @@
 	</parent>
 	<groupId>user</groupId>
 	<artifactId>user-service</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>${revision}</version>
 	<name />
 	<description />
 	<url />
@@ -66,6 +66,8 @@
 		<url />
 	</scm>
 	<properties>
+		<!-- Artifact version: local default; CI overrides it with -Drevision=1.0.<BUILD_NUMBER> -->
+		<revision>0.0.1-SNAPSHOT</revision>
 		<java.version>17</java.version>
 		<spring-cloud.version>2025.0.2</spring-cloud.version>
 		<NEXUS_HOST>localhost</NEXUS_HOST>
@@ -145,6 +147,32 @@
 
 	<build>
 		<plugins>
+			<!-- Replaces ${revision} with the real version in the POM that gets installed/deployed to Nexus -->
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>flatten-maven-plugin</artifactId>
+				<version>1.6.0</version>
+				<configuration>
+					<updatePomFile>true</updatePomFile>
+					<flattenMode>resolveCiFriendliesOnly</flattenMode>
+				</configuration>
+				<executions>
+					<execution>
+						<id>flatten</id>
+						<phase>process-resources</phase>
+						<goals>
+							<goal>flatten</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>flatten-clean</id>
+						<phase>clean</phase>
+						<goals>
+							<goal>clean</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
