@@ -5,7 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import com.cloudinary.Cloudinary;
-//test hamza
+//test hamza 1
 @Configuration
 public class CloudinaryConfig {
     @Value("${CLOUDINARY_URL:default}")

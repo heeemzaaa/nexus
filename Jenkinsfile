@@ -163,9 +163,9 @@ pipeline {
 
                     sh '''
                         cp "$ENV_FILE" .env
-                        cp "$SSL_CERT" frontend/secureCertificate.crt
-                        cp "$SSL_KEY" frontend/private.key
-                        cp "$SSL_PASSPHRASE" frontend/securePassphrase
+                        install -m 644 "$SSL_CERT" frontend/secureCertificate.crt
+                        install -m 644 "$SSL_KEY" frontend/private.key
+                        install -m 644 "$SSL_PASSPHRASE" frontend/securePassphrase
                     '''
 
                     script {
@@ -191,9 +191,9 @@ pipeline {
                                 git checkout ${GIT_PREVIOUS_SUCCESSFUL_COMMIT}
 
                                 cp "$ENV_FILE" .env
-                                cp "$SSL_CERT" frontend/secureCertificate.crt
-                                cp "$SSL_KEY" frontend/private.key
-                                cp "$SSL_PASSPHRASE" frontend/securePassphrase
+                                install -m 644 "$SSL_CERT" frontend/secureCertificate.crt
+                                install -m 644 "$SSL_KEY" frontend/private.key
+                                install -m 644 "$SSL_PASSPHRASE" frontend/securePassphrase
 
                                 export NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083"
                                 export IMAGE_TAG="$GIT_PREVIOUS_SUCCESSFUL_COMMIT"

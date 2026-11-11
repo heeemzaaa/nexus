@@ -1,3 +1,8 @@
+name: cartify
+
+x-podman:
+  in_pod: false
+
 services:
   broker:
     image: apache/kafka:latest
@@ -113,7 +118,7 @@ services:
       - ./frontend/private.key:/etc/nginx/private.key:ro
       - ./frontend/securePassphrase:/etc/nginx/securePassphrase:ro
     ports:
-      - 4200:443
+      - 4200:8443
     depends_on:
       api-gateway:
         condition: service_started
