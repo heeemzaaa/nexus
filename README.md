@@ -139,8 +139,8 @@ Go to **Server administration (⚙️) → Repository → Repositories → Creat
 | 3 | maven2 (proxy) | `maven-central` | Remote storage `https://repo1.maven.org/maven2/` |
 | 4 | maven2 (group) | `maven-public` | Members, in order: `maven-releases`, `maven-snapshots`, `maven-central` |
 | 5 | docker (hosted) | `docker-hosted` | HTTP connector **8082**, Deployment policy **Allow redeploy** |
-| 6 | docker (proxy) | `dockerhub-proxy` | Remote storage `https://registry-1.docker.io`, Docker index **Use Docker Hub** |
-| 7 | docker (group) | `docker-group` | HTTP connector **8083**, members: `docker-hosted`, `dockerhub-proxy` |
+| 6 | docker (proxy) | `docker-proxy` | Remote storage `https://registry-1.docker.io`, Docker index **Use Docker Hub** |
+| 7 | docker (group) | `docker-group` | HTTP connector **8083**, members: `docker-hosted`, `docker-proxy` |
 
 A fresh Nexus already contains repositories named `maven-releases`, `maven-snapshots`, `maven-central` and `maven-public`. Check that their settings match the table instead of creating them again.
 
@@ -252,7 +252,7 @@ IMAGE_TAG="$(git rev-parse --short HEAD)" VERSION=1.0.2 ./scripts/publish_docker
 
 ```bash
 docker pull localhost:8083/cartify/user-service:1.0.2          # our image, from docker-hosted
-docker pull localhost:8083/library/nginx:alpine                # Docker Hub image, through dockerhub-proxy
+docker pull localhost:8083/library/nginx:alpine                # Docker Hub image, through docker-proxy
 ```
 
 Both pulls use the same address (`docker-group`, port 8083).
@@ -372,6 +372,8 @@ push ─▶ Configure Maven for Nexus ─▶ Build ─▶ Test
 
 Publishing and delivery are skipped for pull requests, so only merged code reaches Nexus.
 
+![CI/CD flow through Nexus](docs/explanation.png)
+
 ## 📦 Nexus Artifact Repository
 
 ### 1. Installation (non-root)
@@ -397,8 +399,8 @@ Created in **Server administration → Repository → Repositories**:
 | `maven-central` | maven2 | proxy | Remote `https://repo1.maven.org/maven2/` |
 | `maven-public` | maven2 | group | Members: `maven-releases`, `maven-snapshots`, `maven-central` |
 | `docker-hosted` | docker | hosted | HTTP connector `8082`, *Allow redeploy* (a rebuilt commit re-pushes its SHA tag) |
-| `dockerhub-proxy` | docker | proxy | Remote `https://registry-1.docker.io`, Docker index *Use Docker Hub* |
-| `docker-group` | docker | group | HTTP connector `8083`, members: `docker-hosted`, `dockerhub-proxy` |
+| `docker-proxy` | docker | proxy | Remote `https://registry-1.docker.io`, Docker index *Use Docker Hub* |
+| `docker-group` | docker | group | HTTP connector `8083`, members: `docker-hosted`, `docker-proxy` |
 
 The Maven repositories store both JAR and WAR packaging. JARs, WARs and Docker images each have a hosted repository for our own artifacts, a proxy for external ones, and a group that serves both from one URL.
 
@@ -484,23 +486,19 @@ Every command is in the setup guide above:
 
 ### 8. Screenshots
 
-| | |
-|---|---|
-| Nexus runs as `nexus`, not root | ![nexus user](docs/screenshots/01-nexus-not-root.png) |
-| Repository list | ![repositories](docs/screenshots/02-repositories.png) |
-| Multiple versions in `maven-releases` | ![maven releases](docs/screenshots/03-maven-releases-versions.png) |
-| `maven-snapshots` content | ![maven snapshots](docs/screenshots/04-maven-snapshots.png) |
-| Dependencies cached by the `maven-central` proxy | ![maven central cache](docs/screenshots/05-maven-central-cache.png) |
-| Docker image tags (version + SHA) in `docker-hosted` | ![docker tags](docs/screenshots/06-docker-hosted-tags.png) |
-| `docker-group` members | ![docker group](docs/screenshots/07-docker-group.png) |
-| Realms | ![realms](docs/screenshots/08-realms.png) |
-| Roles | ![roles](docs/screenshots/09-roles.png) |
-| Users | ![users](docs/screenshots/10-users.png) |
-| Content selector | ![content selector](docs/screenshots/11-content-selector.png) |
-| Read-only user gets `403` on push | ![forbidden](docs/screenshots/12-forbidden-push.png) |
-| Jenkins pipeline run | ![jenkins run](docs/screenshots/13-jenkins-pipeline.png) |
-| Jenkins log: deploy + docker push | ![jenkins publish log](docs/screenshots/14-jenkins-publish-log.png) |
-| Fetching an old version (JAR + image) | ![fetch old version](docs/screenshots/16-fetch-old-version.png) |
+The end-to-end flow diagram is in the [CI/CD Pipeline](#-cicd-pipeline) section.
+
+**Nexus runs as the non-root `nexus` user:**
+
+![docker exec nexus whoami](docs/screenshots/nexus_setup.png)
+
+**Maven and Docker repositories** (hosted, proxy and group for each format):
+
+![Nexus repositories](docs/screenshots/maven_and_docker_repos.png)
+
+**Image layers served by `docker-group`** after the pipeline pushed and pulled the images:
+
+![docker-group content](docs/screenshots/docker_group.png)
 
 ### Java version note
 
