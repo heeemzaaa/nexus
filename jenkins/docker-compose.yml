@@ -1,22 +1,26 @@
 services:
   jenkins:
-    image: jenkins/jenkins:lts
-
+    build: .
+    image: local/jenkins-controller:latest
     container_name: jenkins-controller
     restart: unless-stopped
     ports:
       - "8080:8080"
       - "50000:50000"
+    environment:
+      # Jenkins home has the SAME path on the host and in the container. The Docker
+      # Pipeline plugin mounts the workspace into each agent container with
+      # "-v <path>:<path>", and that path is resolved on the host.
+      JENKINS_HOME: ${HOME}/jenkins_home
+      # Host path of the Podman socket, mounted into the docker:cli agents (see Jenkinsfile)
+      HOST_DOCKER_SOCK: ${XDG_RUNTIME_DIR}/podman/podman.sock
     volumes:
-      - jenkins_home:/var/jenkins_home
+      - ${HOME}/jenkins_home:${HOME}/jenkins_home
       - ${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock
-    user: root 
+    user: root
     networks:
       - ci-net
 
 networks:
   ci-net:
     external: true
-    
-volumes:
-  jenkins_home:

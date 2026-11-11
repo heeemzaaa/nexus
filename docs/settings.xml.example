@@ -1,0 +1,34 @@
+<!--
+  Maven settings for building against Nexus from a developer machine.
+
+  Install:
+    mkdir -p ~/.m2 && cp docs/settings.xml.example ~/.m2/settings.xml
+    export NEXUS_USERNAME=<your user> NEXUS_PASSWORD=<your password>
+
+  - <mirror> with mirrorOf=* sends EVERY dependency and plugin request to the
+    maven-public group, so builds resolve exclusively through Nexus (Maven
+    Central is only reached through the maven-central proxy inside Nexus).
+  - <server id="nexus"> holds the credentials; its id matches the <id>nexus</id>
+    used by <distributionManagement> in each service POM, so `mvn deploy` can
+    authenticate to maven-releases / maven-snapshots.
+  - Credentials come from environment variables, never from this file.
+
+  Jenkins writes the same file at build time (stage "Configure Maven for Nexus"),
+  with the Nexus host "nexus" instead of "localhost".
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+    <mirrors>
+        <mirror>
+            <id>nexus</id>
+            <mirrorOf>*</mirrorOf>
+            <url>http://localhost:8081/repository/maven-public/</url>
+        </mirror>
+    </mirrors>
+    <servers>
+        <server>
+            <id>nexus</id>
+            <username>${env.NEXUS_USERNAME}</username>
+            <password>${env.NEXUS_PASSWORD}</password>
+        </server>
+    </servers>
+</settings>

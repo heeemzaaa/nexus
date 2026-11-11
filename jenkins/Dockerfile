@@ -1,20 +1,10 @@
-FROM jenkins/agent:jdk21
+# Jenkins controller.
+# Each pipeline stage runs in its own ready-made image (maven, node, docker:cli),
+# so the controller only needs:
+#   - the docker CLI, to start those agent containers through the Podman socket
+#   - the "Docker Pipeline" plugin, which provides `agent { docker { ... } }`
+FROM jenkins/jenkins:lts
 
-USER root
-RUN apt-get update && apt-get install -y lsb-release python3-pip
-RUN curl -fsSLo /usr/share/keyrings/docker-archive-keyring.asc \
-  https://download.docker.com/linux/debian/gpg
-RUN echo "deb [arch=$(dpkg --print-architecture) \
-  signed-by=/usr/share/keyrings/docker-archive-keyring.asc] \
-  https://download.docker.com/linux/debian \
-  $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
-RUN apt-get update && apt-get install -y docker-ce-cli
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 
-RUN apt install -y nodejs npm
-
-RUN npm install -g @angular/cli@20
-
-# Add jenkins user to the docker group
-RUN groupadd -f docker && usermod -aG docker jenkins
-
-USER jenkins
+RUN jenkins-plugin-cli --plugins docker-workflow

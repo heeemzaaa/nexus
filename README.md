@@ -72,7 +72,8 @@ The system is decomposed into several specialized services, each handling a spec
 - **SonarQube Static Analysis:** Every service (`product-service`, `user-service`, …) is scanned as its own SonarQube project, run against a merged preview of the PR and the target branch.
 - **Quality Gates:** The pipeline automatically fails if a service doesn't meet its quality gate (coverage, bugs, vulnerabilities, code smells, duplication).
 - **Branch Protection:** Merging into `main` requires both a passing Jenkins/SonarQube status check **and** an approved code review — enforced directly by GitHub branch protection rules.
-- **Rollback Strategy:** Failed deployments automatically roll back to the last known-good commit (`git checkout ${GIT_PREVIOUS_SUCCESSFUL_COMMIT}`).
+- **Artifact Management (Nexus):** Every run publishes versioned JARs (`1.0.<build>`) to `maven-releases` and Docker images (version + commit SHA tags) to `docker-hosted`; all dependencies are resolved through Nexus.
+- **Rollback Strategy:** Failed deployments automatically redeploy the Nexus images of the last known-good commit (`GIT_PREVIOUS_SUCCESSFUL_COMMIT`); any older version can be redeployed with `IMAGE_TAG=<version> docker compose -p cartify up -d`.
 - **Notifications:** Email alerts on build success/failure.
 
 ### 🛠️ Technical Stack
@@ -81,116 +82,422 @@ The system is decomposed into several specialized services, each handling a spec
 - **Data:** MongoDB (per-service instances).
 - **Messaging:** Apache Kafka.
 - **Infrastructure:** Docker & Docker Compose (rootless).
-- **CI/CD:** Jenkins (Multibranch Pipeline, custom `jdk21` + Temurin 17 agent image), ngrok (webhook tunnel).
+- **CI/CD:** Jenkins (Multibranch Pipeline, one Docker agent per stage: `maven`, `node`, `docker:cli`), ngrok (webhook tunnel).
 - **Code Quality:** SonarQube Community Edition, Docker Compose (Postgres-backed).
 
 ---
 
-## 🛠️ Setup & Installation
+## 🛠️ Complete Setup Guide (from zero to a running pipeline)
 
-### Prerequisites
-- Docker & Docker Compose
-- Java 17 (for local builds)
-- Node.js & npm (for frontend)
-- Angular CLI (`npm install -g @angular/cli`)
+Run every step in order. Steps marked **(UI)** are done in the Nexus web interface at `http://localhost:8081`.
 
-### 1. Environment Configuration
-Create a `.env` file in the root directory based on `.env.example`:
+### Step 0: Prerequisites
 
-### 2. SSL Certificate Setup
-To support end-to-end HTTPS, you must provide SSL certificates in the `frontend/` directory. Create or place the following files in `frontend/`:
+- Docker or rootless Podman with Docker Compose. The commands below use `docker`; with Podman, `docker` is an alias for `podman`.
+- Java 17 (the Maven Wrapper `./mvnw` is included in each service)
+- Node.js, npm and the Angular CLI (`npm install -g @angular/cli`) for the frontend
+- `git`, `curl`, `openssl`
 
-- `secureCertificate.crt`: Your SSL certificate.
-- `private.key`: The private key for your certificate.
-- `securePassphrase`: A file containing the passphrase for the private key (if applicable).
+### Step 1: Clone the project
 
-Example command to generate self-signed certificates for local development:
 ```bash
+git clone https://github.com/heeemzaaa/nexus.git
+cd nexus
+```
+
+### Step 2: Create the shared network
+
+Nexus, Jenkins and SonarQube talk to each other by name (`nexus`, `sonarqube`) on this network.
+
+```bash
+docker network create ci-net
+```
+
+### Step 3: Start Nexus (non-root)
+
+```bash
+cp nexus/.env.example nexus/.env
+# put a unique key in nexus/.env:
+sed -i "s|^NEXUS_SECRET_KEY=.*|NEXUS_SECRET_KEY=$(openssl rand -base64 32)|" nexus/.env
+
+docker compose -f nexus/docker-compose.yml up -d --build
+docker ps                                          # wait until nexus is "(healthy)", about 2 minutes
+
+docker exec nexus whoami                           # -> nexus   (Nexus does NOT run as root)
+docker exec nexus cat /nexus-data/admin.password   # initial admin password
+```
+
+**(UI)** Sign in as `admin` with that password. In the setup wizard:
+1. Set a new admin password.
+2. Choose **Disable anonymous access**.
+
+### Step 4: Create the repositories (UI)
+
+Go to **Server administration (⚙️) → Repository → Repositories → Create repository**.
+
+| # | Recipe | Name | Settings |
+|---|---|---|---|
+| 1 | maven2 (hosted) | `maven-releases` | Version policy **Release**, Deployment policy **Disable redeploy** |
+| 2 | maven2 (hosted) | `maven-snapshots` | Version policy **Snapshot**, Deployment policy **Allow redeploy** |
+| 3 | maven2 (proxy) | `maven-central` | Remote storage `https://repo1.maven.org/maven2/` |
+| 4 | maven2 (group) | `maven-public` | Members, in order: `maven-releases`, `maven-snapshots`, `maven-central` |
+| 5 | docker (hosted) | `docker-hosted` | HTTP connector **8082**, Deployment policy **Allow redeploy** |
+| 6 | docker (proxy) | `dockerhub-proxy` | Remote storage `https://registry-1.docker.io`, Docker index **Use Docker Hub** |
+| 7 | docker (group) | `docker-group` | HTTP connector **8083**, members: `docker-hosted`, `dockerhub-proxy` |
+
+A fresh Nexus already contains repositories named `maven-releases`, `maven-snapshots`, `maven-central` and `maven-public`. Check that their settings match the table instead of creating them again.
+
+### Step 5: Enable Docker login (UI)
+
+**Security → Realms:** move **Docker Bearer Token Realm** to *Active*, then **Save**. Without it, `docker login` fails with `unauthorized`.
+
+### Step 6: Create roles and users (UI)
+
+**Security → Roles → Create role → Nexus role:**
+
+| Role ID | Privileges |
+|---|---|
+| `ci-deployer` | `nx-repository-view-maven2-maven-public-read`, `nx-repository-view-maven2-maven-public-browse`, `nx-repository-view-maven2-maven-releases-add`, `-edit`, `-read`, `nx-repository-view-maven2-maven-snapshots-add`, `-edit`, `-read`, `nx-repository-view-docker-docker-hosted-add`, `-edit`, `-read`, `nx-repository-view-docker-docker-group-read`, `-browse` |
+| `developer-readonly` | `nx-repository-view-maven2-maven-public-read`, `-browse`, `nx-repository-view-docker-docker-group-read`, `-browse` |
+
+**Restrict one artifact (content selector):**
+1. **Security → Content Selectors → Create:** name `user-service-only`, expression `format == "maven2" and path =^ "/user/user-service/"`
+2. **Security → Privileges → Create privilege → Repository Content Selector:** name `user-service-only-read`, content selector `user-service-only`, repository `maven-releases`, actions `read,browse`
+3. **Security → Roles → Create role:** `user-team` with the privilege `user-service-only-read`
+
+**Security → Users → Create local user:**
+
+| User | Role | Used by |
+|---|---|---|
+| `jenkins-ci` | `ci-deployer` | Jenkins (publishing) |
+| `dev-readonly` | `developer-readonly` | developers (pull only) |
+| `user-team-dev` | `user-team` | can only see `user-service` artifacts |
+
+### Step 7: Allow Docker to use the Nexus registries over HTTP
+
+The Nexus Docker connectors use HTTP, and Docker/Podman use HTTPS by default. This step allows HTTP for `localhost:8082` and `localhost:8083` only:
+
+```bash
+./scripts/setup_nexus_registries.sh
+```
+
+With Docker Engine instead of Podman, add `"insecure-registries": ["localhost:8082", "localhost:8083"]` to `/etc/docker/daemon.json` and restart Docker.
+
+Check that login works:
+
+```bash
+docker login localhost:8082 -u jenkins-ci          # -> Login Succeeded
+docker login localhost:8083 -u jenkins-ci          # -> Login Succeeded
+```
+
+### Step 8: Configure Maven to use Nexus
+
+```bash
+mkdir -p ~/.m2 && cp docs/settings.xml.example ~/.m2/settings.xml
+
+export NEXUS_USERNAME=jenkins-ci
+read -rsp 'Nexus password: ' NEXUS_PASSWORD; export NEXUS_PASSWORD; echo
+```
+
+[docs/settings.xml.example](docs/settings.xml.example) sends **every** dependency request to `maven-public` and reads the credentials from the two variables above. Keep these variables exported for the next steps.
+
+### Step 9: Build and test (dependencies come from Nexus)
+
+```bash
+./scripts/build.sh                                 # package the 6 services
+./scripts/test.sh                                  # run their tests
+
+# proof that dependencies are downloaded through Nexus (empty local repository):
+cd user-service && ./mvnw -Dmaven.repo.local=/tmp/empty-m2 clean package -DskipTests | grep "Downloading from nexus" | head -3; cd ..
+```
+
+**(UI)** **Browse → maven-central** now shows the dependencies that Nexus downloaded and cached.
+
+### Step 10: Publish the JARs to Nexus (several versions)
+
+```bash
+./scripts/deploy_to_nexus.sh                       # 0.0.1-SNAPSHOT -> maven-snapshots
+
+REVISION=1.0.1 ./scripts/build.sh
+REVISION=1.0.1 ./scripts/deploy_to_nexus.sh        # 1.0.1 -> maven-releases
+
+REVISION=1.0.2 ./scripts/build.sh
+REVISION=1.0.2 ./scripts/deploy_to_nexus.sh        # 1.0.2 -> maven-releases
+```
+
+To deploy a single service: `cd user-service && ./mvnw deploy -DskipTests -Drevision=1.0.3`
+
+**(UI)** **Browse → maven-releases → user → user-service** lists `1.0.1` and `1.0.2`.
+
+### Step 11: Retrieve a specific JAR version
+
+```bash
+cd user-service
+./mvnw dependency:get -Dartifact=user:user-service:1.0.1 -Dtransitive=false
+cd ..
+
+# or download it directly:
+curl -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" -O \
+  http://localhost:8081/repository/maven-releases/user/user-service/1.0.1/user-service-1.0.1.jar
+```
+
+### Step 12: Build, tag and push the Docker images
+
+```bash
+REVISION=1.0.2 ./scripts/build.sh
+IMAGE_TAG="$(git rev-parse --short HEAD)" VERSION=1.0.2 ./scripts/publish_docker_to_nexus.sh
+# pushes localhost:8082/cartify/<service>:<commit-sha> and :1.0.2 for the 7 images
+```
+
+**(UI)** **Browse → docker-hosted → v2 → cartify → user-service → tags** shows both tags.
+
+### Step 13: Pull the images from Nexus
+
+```bash
+docker pull localhost:8083/cartify/user-service:1.0.2          # our image, from docker-hosted
+docker pull localhost:8083/library/nginx:alpine                # Docker Hub image, through dockerhub-proxy
+```
+
+Both pulls use the same address (`docker-group`, port 8083).
+
+### Step 14: Run the application from the Nexus images
+
+```bash
+cp .env.example .env
+# fill DB_USERNAME, DB_PASSWORD, DB_NAME, CLOUDINARY_URL, SECRET_KEY
+# and set IMAGE_TAG=1.0.2 (a tag that exists in Nexus)
+
+# self-signed TLS certificate for the frontend
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout frontend/private.key \
-  -out frontend/secureCertificate.crt
-# Create a dummy passphrase file if your key is not encrypted
+  -keyout frontend/private.key -out frontend/secureCertificate.crt -subj "/CN=localhost"
 touch frontend/securePassphrase
+
+docker compose -p cartify pull
+docker compose -p cartify up -d --no-build
+docker compose -p cartify ps
 ```
 
-### 3. Build the Services
-Use the provided build script to package all backend microservices:
+The application runs at `https://localhost:4200`.
+
+To build the images from source instead of pulling them, run `docker compose -p cartify up -d --build`.
+
+### Step 15: Roll back to a previous version
+
 ```bash
-chmod +x ./scripts/build.sh
-./scripts/build.sh
+IMAGE_TAG=1.0.1 docker compose -p cartify pull
+IMAGE_TAG=1.0.1 docker compose -p cartify up -d --no-build
 ```
 
-### 4. Launch the Application
-Run the entire system using Docker Compose:
+Any version stored in Nexus can be redeployed this way, so Nexus always keeps the last known-good build.
+
+### Step 16: Start Jenkins and SonarQube
+
 ```bash
-docker compose up -d
-```
-*Note: The services will wait for the Discovery Service to be healthy before starting.*
+mkdir -p ~/jenkins_home                                   # Jenkins data, same path on host and in the container
+docker compose -f jenkins/docker-compose.yml up -d --build  # http://localhost:8080
+docker compose -f sonarqube/docker-compose.yml up -d      # http://localhost:9000  (admin / admin at first login)
 
-The application will be available at `https://localhost:4200`.
+docker exec jenkins-controller sh -c 'cat $JENKINS_HOME/secrets/initialAdminPassword'
+```
+
+**Agents:** no agent has to be created in Jenkins. Each stage of the [Jenkinsfile](Jenkinsfile) runs in a ready-made Docker image, started on demand by the controller and removed after the stage:
+
+| Stages | Agent image |
+|---|---|
+| Build, test, SonarQube and publish (backend) | `maven:3.9-eclipse-temurin-17` |
+| Build, test and SonarQube (frontend) | `node:22` |
+| Publish Docker images, Deliver | `docker:27-cli` |
+
+The controller image ([jenkins/Dockerfile](jenkins/Dockerfile)) adds the `docker` CLI and the **Docker Pipeline** plugin, which provide `agent { docker { ... } }`. All stages share the controller's workspace (`reuseNode true`). This is why Jenkins' home uses the same path on the host and in the container: the agent containers mount the workspace from the host at that path.
+
+**Jenkins → Manage Jenkins → Credentials**, add:
+
+| ID | Type | Value |
+|---|---|---|
+| `nexus-credentials` | Username with password | `jenkins-ci` and its password |
+| `sonarqube-token` | Secret text | Token generated in SonarQube (*My Account → Security*) |
+| `buy01-env-file` | Secret file | The application `.env` |
+| `ssl-cert` / `ssl-key` / `ssl-passphrase` | Secret file | `frontend/secureCertificate.crt` / `private.key` / `securePassphrase` |
+
+**Manage Jenkins → System → SonarQube servers:** name `sonar-server`, URL `http://sonarqube:9000`.
+
+**New Item → Multibranch Pipeline:** source is this GitHub repository, script path `Jenkinsfile`. Add a GitHub webhook to `<jenkins-url>/github-webhook/` (through ngrok when Jenkins runs locally), so every push starts the pipeline.
+
+### Step 17: Push a change and watch the pipeline publish
+
+```bash
+git commit --allow-empty -m "trigger pipeline" && git push
+```
+
+The pipeline builds, tests, runs SonarQube, publishes the JARs as `1.0.<build number>` to `maven-releases`, pushes the images with the same version and the commit SHA to `docker-hosted`, then deploys by pulling them from Nexus. Each new run adds one more version in Nexus.
+
+### After a reboot
+
+Rootless Podman does not restart containers on its own:
+
+```bash
+docker start nexus jenkins-controller sonarqube_sonarqube_1
+# or start them automatically once and for all:
+systemctl --user enable --now podman-restart.service
+```
 
 ---
 
 ## 🔁 CI/CD Pipeline
 
-The CI/CD pipeline is fully implemented for automated build, test, and quality gate execution. To run the pipeline, Jenkins should be configured locally.
+The Jenkins Multibranch Pipeline ([Jenkinsfile](Jenkinsfile)) runs on every push and pull request (GitHub webhook):
+
+```text
+push ─▶ Configure Maven for Nexus ─▶ Build ─▶ Test ─▶ SonarQube (frontend + backend)
+     ─▶ Publish Maven Artifacts to Nexus ─▶ Publish Docker Images to Nexus ─▶ Deliver (pull from Nexus)
+```
+
+| Stage | What it does with Nexus |
+|---|---|
+| Configure Maven for Nexus | Writes a temporary `settings.xml`: a `mirrorOf=*` mirror to `maven-public` and a `nexus` server entry whose credentials come from the `nexus-credentials` Jenkins credential. |
+| Build / Test / SonarQube | Every dependency and plugin is resolved through `maven-public`. All Maven calls receive `-Drevision=1.0.<BUILD_NUMBER>`. |
+| Publish Maven Artifacts | `scripts/deploy_to_nexus.sh` runs `mvn deploy` for the 6 services, which uploads JAR and POM to `maven-releases`. |
+| Publish Docker Images | `scripts/publish_docker_to_nexus.sh` builds 7 images and pushes each to `docker-hosted` (`localhost:8082`) with two tags: the version (`1.0.<BUILD_NUMBER>`) and the Git commit SHA. |
+| Deliver | Logs in to `docker-group` (`localhost:8083`), pulls the images of this commit and restarts the stack with `docker compose up --no-build`. On failure it pulls the images of the last successful commit (rollback). |
+
+Publishing and delivery are skipped for pull requests, so only merged code reaches Nexus.
 
 ## 📦 Nexus Artifact Repository
 
-The Nexus service is defined in `nexus/docker-compose.yml` and runs as the non-root `nexus` user. Start it on the same Docker network as Jenkins:
+### 1. Installation (non-root)
 
-```bash
-docker network create ci-net # skip if it already exists
-cp nexus/.env.example nexus/.env
-# Set NEXUS_SECRET_KEY in nexus/.env to a unique value
-docker compose -f nexus/docker-compose.yml up -d --build
+Nexus runs from the official `sonatype/nexus3` image, extended in [nexus/Dockerfile](nexus/Dockerfile). The container runs as the dedicated **`nexus`** user (`USER nexus` in the Dockerfile and `user: nexus` in [nexus/docker-compose.yml](nexus/docker-compose.yml)), never as root. Its data lives in the `nexus_data` volume.
+
+Setup commands: [Steps 2–3](#step-2-create-the-shared-network).
+
+| Port | Used for |
+|---|---|
+| `8081` | Web UI, REST API and all Maven repositories |
+| `8082` | HTTP connector of `docker-hosted` (push) |
+| `8083` | HTTP connector of `docker-group` (pull) |
+
+### 2. Repositories
+
+Created in **Server administration → Repository → Repositories**:
+
+| Name | Format | Type | Configuration |
+|---|---|---|---|
+| `maven-releases` | maven2 | hosted | Version policy *Release*, deployment policy *Disable redeploy* (a released version is immutable) |
+| `maven-snapshots` | maven2 | hosted | Version policy *Snapshot*, *Allow redeploy* |
+| `maven-central` | maven2 | proxy | Remote `https://repo1.maven.org/maven2/` |
+| `maven-public` | maven2 | group | Members: `maven-releases`, `maven-snapshots`, `maven-central` |
+| `docker-hosted` | docker | hosted | HTTP connector `8082`, *Allow redeploy* (a rebuilt commit re-pushes its SHA tag) |
+| `dockerhub-proxy` | docker | proxy | Remote `https://registry-1.docker.io`, Docker index *Use Docker Hub* |
+| `docker-group` | docker | group | HTTP connector `8083`, members: `docker-hosted`, `dockerhub-proxy` |
+
+The Maven repositories store both JAR and WAR packaging. JARs, WARs and Docker images each have a hosted repository for our own artifacts, a proxy for external ones, and a group that serves both from one URL.
+
+### 3. Maven integration
+
+**Publishing.** Each service POM declares where `mvn deploy` uploads to. The server id `nexus` matches the credentials entry in `settings.xml`:
+
+```xml
+<distributionManagement>
+    <repository>         <id>nexus</id> <url>${nexus-url}/repository/maven-releases/</url>  </repository>
+    <snapshotRepository> <id>nexus</id> <url>${nexus-url}/repository/maven-snapshots/</url> </snapshotRepository>
+</distributionManagement>
 ```
 
-On first startup, retrieve the initial admin password with `docker exec nexus cat /nexus-data/admin.password`, sign in at `http://localhost:8081`, and change it. Create these Maven repositories in **Server administration → Repositories**:
+Maven chooses the repository from the version: `1.0.42` goes to `maven-releases`, while `0.0.1-SNAPSHOT` goes to `maven-snapshots`.
 
-- `maven-releases`: hosted, release version policy.
-- `maven-snapshots`: hosted, snapshot version policy.
-- `maven-central`: proxy for `https://repo1.maven.org/maven2/`.
-- `maven-public`: group containing `maven-releases`, `maven-snapshots`, and `maven-central`.
+**Dependency resolution exclusively through Nexus.** [docs/settings.xml.example](docs/settings.xml.example) mirrors `*` (every repository, Maven Central included) to `maven-public`, so a build never contacts the Internet directly. Nexus fetches missing artifacts once through `maven-central` and caches them. Jenkins generates the same file in its first stage.
 
-Create a least-privilege deployment user with read access to `maven-public` and add/edit access to both hosted repositories. Store it in Jenkins Credentials as a **Username with password** credential with ID `nexus-credentials`. The pipeline mirrors Maven dependency and plugin requests through `maven-public`, then publishes backend artifacts to the hosted repository matching each POM version (the services currently use `0.0.1-SNAPSHOT`). Publishing is skipped for pull requests.
+Setup commands: [Steps 8–9](#step-8-configure-maven-to-use-nexus).
 
-Create these Docker repositories in **Server administration → Repositories**:
+After the Step 9 build, **Browse → maven-central** shows the cached dependencies (Spring Boot, Jackson, etc.).
 
-- `docker-hosted`: hosted, HTTP connector port `8082`, allow redeploy for repeat builds of the same commit tag.
-- `dockerhub-proxy`: proxy for `https://registry-1.docker.io`.
-- `docker-group`: group, HTTP connector port `8083`, containing `docker-hosted` and `dockerhub-proxy`.
+### 4. Versioning
 
-Enable the **Docker Bearer Token Realm** under **Security → Realms**. Give the Jenkins deployment user read access to `docker-group` and add/edit access to `docker-hosted`; do not use the initial admin account for CI. Save the user in Jenkins Credentials as the existing `nexus-credentials` username/password credential.
+Every POM uses Maven [CI-friendly versions](https://maven.apache.org/maven-ci-friendly.html):
 
-The Docker connector URLs above use HTTP. Configure the Docker daemon that performs builds and pulls to allow the exact registry hostnames used by that daemon (the Jenkins pipeline defaults to `nexus:8082` and `nexus:8083` via `NEXUS_DOCKER_REGISTRY_HOST`; local commands use `localhost:8082` and `localhost:8083`) as insecure registries, then restart the daemon. For Docker Engine, add both host:port entries to `insecure-registries` in `daemon.json`; for Podman, mark the corresponding registries insecure in `registries.conf`. Prefer TLS-enabled registry endpoints outside a local learning environment. The daemon must also be able to resolve and reach the selected hostnames.
-
-The pipeline builds seven application images, tags each with the full Git commit SHA, pushes them to `docker-hosted`, and deploys by pulling those tags through `docker-group`. Pull requests skip publishing and delivery. The frontend TLS certificate, private key, and passphrase are mounted at runtime and are not included in the published image layers.
-
-To publish locally after creating the repositories and configuring the local daemon:
-
-```bash
-export NEXUS_USERNAME='your-deploy-user'
-read -rsp 'Nexus password: ' NEXUS_PASSWORD; export NEXUS_PASSWORD; printf '\n'
-export NEXUS_DOCKER_PUSH_REGISTRY=localhost:8082
-export NEXUS_DOCKER_PULL_REGISTRY=localhost:8083
-export IMAGE_TAG="$(git rev-parse --short HEAD)"
-./scripts/build.sh
-./scripts/publish_docker_to_nexus.sh
+```xml
+<version>${revision}</version>
+<properties>
+    <revision>0.0.1-SNAPSHOT</revision>   <!-- local default -->
+</properties>
 ```
 
-Verify a pull through the group repository:
+- **Local builds** keep `0.0.1-SNAPSHOT` and deploy to `maven-snapshots`.
+- **Jenkins** passes `-Drevision=1.0.${BUILD_NUMBER}`, so every pipeline run produces a new, immutable release version in `maven-releases`.
+- **`flatten-maven-plugin`** rewrites `${revision}` to the real number in the POM that is deployed, so consumers of `user:user-service:1.0.42` get a valid POM.
+- **Docker images** are tagged with the same version **and** the Git commit SHA:
 
-```bash
-docker login localhost:8083
-NEXUS_DOCKER_PULL_REGISTRY=localhost:8083 IMAGE_TAG="$IMAGE_TAG" \
-  docker compose pull discovery-service api-gateway user-service product-service media-service order-service angular-app
-docker logout localhost:8083
-```
+| Tag | Example | Purpose |
+|---|---|---|
+| version | `cartify/user-service:1.0.42` | Same number as the Maven JAR: JAR ↔ image ↔ Jenkins build #42 |
+| commit SHA | `cartify/user-service:3649f09f…` | Trace an image back to the exact source commit (used by Deliver and rollback) |
 
-The backend POMs currently target Java 17, so the assignment's Java 11 constraint is also not met; changing that requires a compatible Spring Boot/Spring Cloud baseline.
+The image also carries the labels `org.opencontainers.image.version` and `org.opencontainers.image.revision`.
+
+**Traceability:** from a running container's tag you know the Jenkins build (`1.0.42` = build #42). The commit tag gives the exact source revision (`git show <sha>`). Nexus keeps every previous version, so any of them can be fetched again or redeployed.
+
+### 5. Docker integration
+
+Nexus serves Docker over plain HTTP. Podman, like Docker, uses HTTPS by default, so the two Nexus addresses are declared insecure once on the host with [scripts/setup_nexus_registries.sh](scripts/setup_nexus_registries.sh), which installs [jenkins/nexus-registries.conf](jenkins/nexus-registries.conf).
+
+The pipeline uses **`localhost:8082/8083`**, not `nexus:8082`. Jenkins' `docker` CLI only talks to the host's Podman socket, and the host performs the push and pull. The host cannot resolve the `nexus` container name.
+
+**Docker Bearer Token Realm** is enabled in **Security → Realms**. Without it, `docker login` returns `unauthorized`.
+
+### 6. Example commands
+
+Every command is in the setup guide above:
+
+| Operation | Step |
+|---|---|
+| `mvn deploy` (snapshot and release versions) | [Step 10](#step-10-publish-the-jars-to-nexus-several-versions) |
+| `mvn dependency:get` / download an old JAR | [Step 11](#step-11-retrieve-a-specific-jar-version) |
+| `docker login` | [Step 7](#step-7-allow-docker-to-use-the-nexus-registries-over-http) |
+| `docker build` / tag / `docker push` | [Step 12](#step-12-build-tag-and-push-the-docker-images) |
+| `docker pull` | [Step 13](#step-13-pull-the-images-from-nexus) |
+| Rollback | [Step 15](#step-15-roll-back-to-a-previous-version) |
+
+### 7. Security and access control
+
+- **Authentication:** the initial `admin` password was changed at first login. **Anonymous access is disabled** (*Security → Anonymous Access*), so every UI, REST, Maven and Docker request must authenticate. An unauthenticated request returns `401`.
+- **Realms:** *Local Authenticating Realm*, *Local Authorizing Realm* and *Docker Bearer Token Realm*.
+- **Role-based access control:** CI and people get only the privileges they need. Nobody uses `admin` day to day.
+
+| Role | Privileges | Assigned to |
+|---|---|---|
+| `ci-deployer` | `nx-repository-view-maven2-maven-public-read/browse`, `…-maven-releases-add/edit/read`, `…-maven-snapshots-add/edit/read`, `nx-repository-view-docker-docker-hosted-add/edit/read`, `nx-repository-view-docker-docker-group-read/browse` | `jenkins-ci` (Jenkins credential `nexus-credentials`) |
+| `developer-readonly` | `nx-repository-view-maven2-maven-public-read/browse`, `nx-repository-view-docker-docker-group-read/browse` | `dev-readonly` |
+| `user-team` | Content-selector privilege `user-service-only` (read, browse) | `user-team-dev` |
+
+- **Repository-level permissions:** `dev-readonly` can pull from the groups, but `mvn deploy` and `docker push` return **403 Forbidden**. Only `ci-deployer` can write, and only to the hosted repositories.
+- **Artifact-level restriction:** the content selector `user-service-only` (expression `format == "maven2" and path =^ "/user/user-service/"`) gives `user-team-dev` access to the `user-service` artifacts in `maven-releases` and nothing else.
+
+### 8. Screenshots
+
+| | |
+|---|---|
+| Nexus runs as `nexus`, not root | ![nexus user](docs/screenshots/01-nexus-not-root.png) |
+| Repository list | ![repositories](docs/screenshots/02-repositories.png) |
+| Multiple versions in `maven-releases` | ![maven releases](docs/screenshots/03-maven-releases-versions.png) |
+| `maven-snapshots` content | ![maven snapshots](docs/screenshots/04-maven-snapshots.png) |
+| Dependencies cached by the `maven-central` proxy | ![maven central cache](docs/screenshots/05-maven-central-cache.png) |
+| Docker image tags (version + SHA) in `docker-hosted` | ![docker tags](docs/screenshots/06-docker-hosted-tags.png) |
+| `docker-group` members | ![docker group](docs/screenshots/07-docker-group.png) |
+| Realms | ![realms](docs/screenshots/08-realms.png) |
+| Roles | ![roles](docs/screenshots/09-roles.png) |
+| Users | ![users](docs/screenshots/10-users.png) |
+| Content selector | ![content selector](docs/screenshots/11-content-selector.png) |
+| Read-only user gets `403` on push | ![forbidden](docs/screenshots/12-forbidden-push.png) |
+| Jenkins pipeline run | ![jenkins run](docs/screenshots/13-jenkins-pipeline.png) |
+| Jenkins log: deploy + docker push | ![jenkins publish log](docs/screenshots/14-jenkins-publish-log.png) |
+| Fetching an old version (JAR + image) | ![fetch old version](docs/screenshots/16-fetch-old-version.png) |
+
+### Java version note
+
+The subject asks for Java 11. The services target **Java 17** because Spring Boot 3.x and Spring Cloud 2025 require Java 17 as a minimum. Moving to Java 11 would mean downgrading the whole stack to Spring Boot 2.7, which is end-of-life. The Nexus, Maven and Docker workflow described above does not depend on the Java version.
 
 ---
+
 
 ## 📖 API Documentation
 
@@ -221,6 +528,10 @@ The **API Gateway** (Port 8080) routes traffic to the following endpoints:
 ## 🛠️ Developer Scripts
 
 - `build.sh`: Packages all Spring Boot services using Maven Wrapper.
+- `test.sh`: Runs the tests of every Spring Boot service.
+- `deploy_to_nexus.sh`: `mvn deploy` of every service to Nexus (`REVISION=1.0.x` for a release).
+- `publish_docker_to_nexus.sh`: Builds the images and pushes them to `docker-hosted` (commit SHA + `VERSION` tags).
+- `setup_nexus_registries.sh`: Allows Podman to reach the Nexus Docker connectors over HTTP.
 - `run_docker_dns.sh`: Helper to restart Docker with custom DNS settings (if needed for registry access).
 
 ---

@@ -1,9 +1,7 @@
 pipeline {
-    agent {
-        node {
-            label 'docker-agent'
-        }
-    }
+    // The controller checks out the code once; every stage below runs in its own
+    // ready-made Docker image on that same workspace (reuseNode true).
+    agent any
 
     environment {
         NEXUS_HOST = 'nexus'
@@ -37,28 +35,72 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build - backend') {
+            agent {
+                docker {
+                    image 'maven:3.9-eclipse-temurin-17'
+                    // ci-net: reach "nexus"; jenkins-m2: keep the Maven cache between builds
+                    args '--network ci-net -v jenkins-m2:/root/.m2'
+                    reuseNode true
+                }
+            }
             steps {
-                echo 'Building..'
                 sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/build.sh'
+            }
+        }
+
+        stage('Build - frontend') {
+            agent {
+                docker {
+                    image 'node:22'
+                    args '-v jenkins-npm:/root/.npm'
+                    reuseNode true
+                }
+            }
+            steps {
                 sh '''
                 cd frontend
-                npm i
-                ng build
+                npm ci
+                npx ng build
                 '''
             }
         }
 
-        stage('Test') {
+        stage('Test - backend') {
+            agent {
+                docker {
+                    image 'maven:3.9-eclipse-temurin-17'
+                    args '--network ci-net -v jenkins-m2:/root/.m2'
+                    reuseNode true
+                }
+            }
             steps {
-                echo 'Testing..'
                 sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/test.sh'
-                sh 'npm install --save-dev @vitest/coverage-v8'
-                sh 'cd frontend && ng test --watch=false --code-coverage'
+            }
+        }
+
+        stage('Test - frontend') {
+            agent {
+                docker {
+                    image 'node:22'
+                    args '-v jenkins-npm:/root/.npm'
+                    reuseNode true
+                }
+            }
+            steps {
+                sh 'cd frontend && npx ng test --watch=false --code-coverage'
             }
         }
 
         stage('SonarQube Analysis & Quality Gate - frontend') {
+            agent {
+                docker {
+                    image 'node:22'
+                    // ci-net: reach "sonarqube"
+                    args '--network ci-net -v jenkins-npm:/root/.npm'
+                    reuseNode true
+                }
+            }
             steps {
                 script {
                     dir('frontend') {
@@ -83,6 +125,13 @@ pipeline {
         }
 
         stage('SonarQube Analysis & Quality Gate - backend') {
+            agent {
+                docker {
+                    image 'maven:3.9-eclipse-temurin-17'
+                    args '--network ci-net -v jenkins-m2:/root/.m2'
+                    reuseNode true
+                }
+            }
             steps {
                 withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
                     script {
@@ -117,6 +166,13 @@ pipeline {
                     changeRequest()
                 }
             }
+            agent {
+                docker {
+                    image 'maven:3.9-eclipse-temurin-17'
+                    args '--network ci-net -v jenkins-m2:/root/.m2'
+                    reuseNode true
+                }
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
                     sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/deploy_to_nexus.sh'
@@ -130,7 +186,18 @@ pipeline {
                     changeRequest()
                 }
             }
+            agent {
+                docker {
+                    image 'docker:27-cli'
+                    // the host's Podman socket, so docker build/push run on the host
+                    // DOCKER_BUILDKIT=0: Podman does not support BuildKit, use the classic builder
+                    args "-v ${env.HOST_DOCKER_SOCK}:/var/run/docker.sock -e DOCKER_BUILDKIT=0"
+                    reuseNode true
+                }
+            }
             steps {
+                // the scripts are written in bash, which docker:cli (Alpine) does not include
+                sh 'apk add --no-cache bash git'
                 withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
                     // Each image gets two tags: $GIT_COMMIT (traceability, used by Deliver/rollback) and $REVISION (same as the Maven version)
                     sh 'NEXUS_DOCKER_PUSH_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8082" NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083" IMAGE_TAG="$GIT_COMMIT" VERSION="$REVISION" ./scripts/publish_docker_to_nexus.sh'
@@ -144,7 +211,15 @@ pipeline {
                     changeRequest()
                 }
             }
+            agent {
+                docker {
+                    image 'docker:27-cli'
+                    args "-v ${env.HOST_DOCKER_SOCK}:/var/run/docker.sock -e DOCKER_BUILDKIT=0"
+                    reuseNode true
+                }
+            }
             steps {
+                sh 'apk add --no-cache git'
                 withCredentials([
                     file(credentialsId: 'buy01-env-file', variable: 'ENV_FILE'),
                     file(credentialsId: 'ssl-cert', variable: 'SSL_CERT'),
@@ -220,7 +295,7 @@ pipeline {
             setBuildStatus('Build succeeded', 'SUCCESS')
             script {
                 mail(
-                    to: 'elasriyoussef604@gmail.com',
+                    to: 'hamzaelkhawlani00@gmail.com',
                     subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                     body: "Build passed.\nLogs: ${env.BUILD_URL}"
                 )
@@ -230,7 +305,7 @@ pipeline {
             setBuildStatus('Build failed', 'FAILURE')
             script {
                 mail(
-                    to: 'elasriyoussef604@gmail.com',
+                    to: 'hamzaelkhawlani00@gmail.com',
                     subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                     body: "Build failed.\nLogs: ${env.BUILD_URL}console"
                 )
@@ -242,7 +317,7 @@ pipeline {
 void setBuildStatus(String message, String state) {
     step([
         $class: 'GitHubCommitStatusSetter',
-        reposSource: [$class: 'ManuallyEnteredRepositorySource', url: 'https://github.com/yelasri07/cartify'],
+        reposSource: [$class: 'ManuallyEnteredRepositorySource', url: 'https://github.com/heeemzaaa/nexus'],
         contextSource: [$class: 'ManuallyEnteredCommitContextSource', context: 'ci/jenkins/build-status'],
         errorHandlers: [[$class: 'ChangingBuildStatusErrorHandler', result: 'UNSTABLE']],
         statusResultSource: [$class: 'ConditionalStatusResultSource', results: [[$class: 'AnyBuildResult', message: message, state: state]]]
