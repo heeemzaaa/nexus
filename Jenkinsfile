@@ -130,10 +130,11 @@ pipeline {
             steps {
                 // the scripts are written in bash, which docker:cli (Alpine) does not include
                 sh 'apk add --no-cache bash git'
-                withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
-                    // Each image gets two tags: $GIT_COMMIT (traceability, used by Deliver/rollback) and $REVISION (same as the Maven version)
-                    sh 'NEXUS_DOCKER_PUSH_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8082" NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083" IMAGE_TAG="$GIT_COMMIT" VERSION="$REVISION" ./scripts/publish_docker_to_nexus.sh'
-                }
+                // Credentials come from the pipeline-level NEXUS binding (NEXUS_USR/NEXUS_PSW): it exists before the
+                // container starts, so it is passed on "docker run". Variables added later by withCredentials are only
+                // passed on "docker exec", which the host's Podman does not forward, so they arrive empty.
+                // Each image gets two tags: $GIT_COMMIT (traceability, used by Deliver/rollback) and $REVISION (same as the Maven version)
+                sh 'NEXUS_USERNAME="$NEXUS_USR" NEXUS_PASSWORD="$NEXUS_PSW" NEXUS_DOCKER_PUSH_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8082" NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083" IMAGE_TAG="$GIT_COMMIT" VERSION="$REVISION" ./scripts/publish_docker_to_nexus.sh'
             }
         }
 
@@ -156,8 +157,7 @@ pipeline {
                     file(credentialsId: 'buy01-env-file', variable: 'ENV_FILE'),
                     file(credentialsId: 'ssl-cert', variable: 'SSL_CERT'),
                     file(credentialsId: 'ssl-key', variable: 'SSL_KEY'),
-                    file(credentialsId: 'ssl-passphrase', variable: 'SSL_PASSPHRASE'),
-                    usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')
+                    file(credentialsId: 'ssl-passphrase', variable: 'SSL_PASSPHRASE')
                 ]) {
                     echo 'Deliver....'
 
@@ -174,7 +174,7 @@ pipeline {
                                 trap 'docker logout "$NEXUS_DOCKER_REGISTRY_HOST:8083" >/dev/null 2>&1 || true' EXIT
                                 export NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083"
                                 export IMAGE_TAG="$GIT_COMMIT"
-                                printf '%s' "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY_HOST:8083" --username "$NEXUS_USERNAME" --password-stdin
+                                printf '%s' "$NEXUS_PSW" | docker login "$NEXUS_DOCKER_REGISTRY_HOST:8083" --username "$NEXUS_USR" --password-stdin
                                 docker compose -p cartify pull discovery-service api-gateway user-service product-service media-service order-service angular-app
                                 docker compose -p cartify down
                                 docker compose -p cartify up -d --no-build
@@ -197,7 +197,7 @@ pipeline {
 
                                 export NEXUS_DOCKER_PULL_REGISTRY="$NEXUS_DOCKER_REGISTRY_HOST:8083"
                                 export IMAGE_TAG="$GIT_PREVIOUS_SUCCESSFUL_COMMIT"
-                                printf '%s' "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY_HOST:8083" --username "$NEXUS_USERNAME" --password-stdin
+                                printf '%s' "$NEXUS_PSW" | docker login "$NEXUS_DOCKER_REGISTRY_HOST:8083" --username "$NEXUS_USR" --password-stdin
                                 docker compose -p cartify pull discovery-service api-gateway user-service product-service media-service order-service angular-app
                                 docker compose -p cartify down
                                 docker compose -p cartify up -d --no-build
