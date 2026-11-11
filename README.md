@@ -1,6 +1,6 @@
 # Cartify: Microservices E-commerce Platform
 
-Cartify is a robust, end-to-end e-commerce marketplace built using a microservices architecture. It leverages **Spring Boot** for the backend, **Angular** for the frontend, and **MongoDB** for persistent storage, with **Kafka** for asynchronous communication — all backed by an automated **Jenkins CI/CD pipeline** with **SonarQube**-enforced quality gates.
+Cartify is a robust, end-to-end e-commerce marketplace built using a microservices architecture. It leverages **Spring Boot** for the backend, **Angular** for the frontend, and **MongoDB** for persistent storage, with **Kafka** for asynchronous communication — all backed by an automated **Jenkins CI/CD pipeline**.
 
 ## 🏗️ Architecture Overview
 
@@ -69,9 +69,7 @@ The system is decomposed into several specialized services, each handling a spec
 
 ### ⚙️ CI/CD & Code Quality
 - **Automated Build & Test:** Each Spring Boot service is built and tested independently via Maven Wrapper before deployment.
-- **SonarQube Static Analysis:** Every service (`product-service`, `user-service`, …) is scanned as its own SonarQube project, run against a merged preview of the PR and the target branch.
-- **Quality Gates:** The pipeline automatically fails if a service doesn't meet its quality gate (coverage, bugs, vulnerabilities, code smells, duplication).
-- **Branch Protection:** Merging into `main` requires both a passing Jenkins/SonarQube status check **and** an approved code review — enforced directly by GitHub branch protection rules.
+- **Branch Protection:** Merging into `main` requires both a passing Jenkins status check **and** an approved code review — enforced directly by GitHub branch protection rules.
 - **Artifact Management (Nexus):** Every run publishes versioned JARs (`1.0.<build>`) to `maven-releases` and Docker images (version + commit SHA tags) to `docker-hosted`; all dependencies are resolved through Nexus.
 - **Rollback Strategy:** Failed deployments automatically redeploy the Nexus images of the last known-good commit (`GIT_PREVIOUS_SUCCESSFUL_COMMIT`); any older version can be redeployed with `IMAGE_TAG=<version> docker compose -p cartify up -d`.
 - **Notifications:** Email alerts on build success/failure.
@@ -83,7 +81,6 @@ The system is decomposed into several specialized services, each handling a spec
 - **Messaging:** Apache Kafka.
 - **Infrastructure:** Docker & Docker Compose (rootless).
 - **CI/CD:** Jenkins (Multibranch Pipeline, one Docker agent per stage: `maven`, `node`, `docker:cli`), ngrok (webhook tunnel).
-- **Code Quality:** SonarQube Community Edition, Docker Compose (Postgres-backed).
 
 ---
 
@@ -107,7 +104,7 @@ cd nexus
 
 ### Step 2: Create the shared network
 
-Nexus, Jenkins and SonarQube talk to each other by name (`nexus`, `sonarqube`) on this network.
+Nexus, Jenkins and the pipeline agents talk to each other by name (`nexus`) on this network.
 
 ```bash
 docker network create ci-net
@@ -290,38 +287,51 @@ IMAGE_TAG=1.0.1 docker compose -p cartify up -d --no-build
 
 Any version stored in Nexus can be redeployed this way, so Nexus always keeps the last known-good build.
 
-### Step 16: Start Jenkins and SonarQube
+### Step 16: Start Jenkins (Configuration as Code)
+
+**1. Jenkins secrets.** Jenkins is configured entirely by [jenkins/casc/jenkins.yaml](jenkins/casc/jenkins.yaml) (Configuration as Code). That file contains no secret: it reads them from `jenkins/.env` and `jenkins/secrets/`, which are both gitignored.
 
 ```bash
-mkdir -p ~/jenkins_home                                   # Jenkins data, same path on host and in the container
-docker compose -f jenkins/docker-compose.yml up -d --build  # http://localhost:8080
-docker compose -f sonarqube/docker-compose.yml up -d      # http://localhost:9000  (admin / admin at first login)
+cp jenkins/.env.example jenkins/.env
+# fill in jenkins/.env: Jenkins admin, Nexus jenkins-ci password, GitHub token, SMTP
 
-docker exec jenkins-controller sh -c 'cat $JENKINS_HOME/secrets/initialAdminPassword'
+mkdir -p jenkins/secrets
+cp .env                          jenkins/secrets/app.env              # application .env (Step 14)
+cp frontend/secureCertificate.crt jenkins/secrets/secureCertificate.crt
+cp frontend/private.key          jenkins/secrets/private.key
+cp frontend/securePassphrase     jenkins/secrets/securePassphrase
 ```
+
+**2. Start Jenkins:**
+
+```bash
+mkdir -p ~/jenkins_home                                     # Jenkins data, same path on host and in the container
+docker compose -f jenkins/docker-compose.yml up -d --build  # http://localhost:8080
+```
+
+Log in with `JENKINS_ADMIN_USER` / `JENKINS_ADMIN_PASSWORD` from `jenkins/.env`. There is no setup wizard and nothing to configure in the UI. At startup, Configuration as Code creates:
+
+| What | Value |
+|---|---|
+| Login | local admin user, sign-up disabled, anonymous access denied |
+| Credentials | `nexus-credentials`, `github-token`, `buy01-env-file`, `ssl-cert`, `ssl-key`, `ssl-passphrase` |
+| GitHub | commit status with `github-token` |
+| E-mail | SMTP server for the success/failure notifications |
+| Job | `Nexus`: pipeline from `Jenkinsfile` on `main`, started by a GitHub push |
+
+The configuration is applied again at every start. To change something, edit `jenkins/casc/jenkins.yaml` or `jenkins/.env` and run `docker restart jenkins-controller`. Plugins are listed in [jenkins/plugins.txt](jenkins/plugins.txt) and installed when the image is built.
+
+**3. GitHub webhook:** in the GitHub repository, go to *Settings → Webhooks → Add webhook* and set the payload URL to `<jenkins-url>/github-webhook/` (through ngrok when Jenkins runs locally).
 
 **Agents:** no agent has to be created in Jenkins. Each stage of the [Jenkinsfile](Jenkinsfile) runs in a ready-made Docker image, started on demand by the controller and removed after the stage:
 
 | Stages | Agent image |
 |---|---|
-| Build, test, SonarQube and publish (backend) | `maven:3.9-eclipse-temurin-17` |
-| Build, test and SonarQube (frontend) | `node:22` |
+| Build, test and publish (backend) | `maven:3.9-eclipse-temurin-17` |
+| Build and test (frontend) | `node:22` |
 | Publish Docker images, Deliver | `docker:27-cli` |
 
-The controller image ([jenkins/Dockerfile](jenkins/Dockerfile)) adds the `docker` CLI and the **Docker Pipeline** plugin, which provide `agent { docker { ... } }`. All stages share the controller's workspace (`reuseNode true`). This is why Jenkins' home uses the same path on the host and in the container: the agent containers mount the workspace from the host at that path.
-
-**Jenkins → Manage Jenkins → Credentials**, add:
-
-| ID | Type | Value |
-|---|---|---|
-| `nexus-credentials` | Username with password | `jenkins-ci` and its password |
-| `sonarqube-token` | Secret text | Token generated in SonarQube (*My Account → Security*) |
-| `buy01-env-file` | Secret file | The application `.env` |
-| `ssl-cert` / `ssl-key` / `ssl-passphrase` | Secret file | `frontend/secureCertificate.crt` / `private.key` / `securePassphrase` |
-
-**Manage Jenkins → System → SonarQube servers:** name `sonar-server`, URL `http://sonarqube:9000`.
-
-**New Item → Multibranch Pipeline:** source is this GitHub repository, script path `Jenkinsfile`. Add a GitHub webhook to `<jenkins-url>/github-webhook/` (through ngrok when Jenkins runs locally), so every push starts the pipeline.
+The controller image ([jenkins/Dockerfile](jenkins/Dockerfile)) adds the `docker` CLI and the plugins. The **Docker Pipeline** plugin provides `agent { docker { ... } }`. All stages share the controller's workspace (`reuseNode true`). This is why Jenkins' home uses the same path on the host and in the container: the agent containers mount the workspace from the host at that path.
 
 ### Step 17: Push a change and watch the pipeline publish
 
@@ -329,14 +339,14 @@ The controller image ([jenkins/Dockerfile](jenkins/Dockerfile)) adds the `docker
 git commit --allow-empty -m "trigger pipeline" && git push
 ```
 
-The pipeline builds, tests, runs SonarQube, publishes the JARs as `1.0.<build number>` to `maven-releases`, pushes the images with the same version and the commit SHA to `docker-hosted`, then deploys by pulling them from Nexus. Each new run adds one more version in Nexus.
+The pipeline builds, tests, publishes the JARs as `1.0.<build number>` to `maven-releases`, pushes the images with the same version and the commit SHA to `docker-hosted`, then deploys by pulling them from Nexus. Each new run adds one more version in Nexus.
 
 ### After a reboot
 
 Rootless Podman does not restart containers on its own:
 
 ```bash
-docker start nexus jenkins-controller sonarqube_sonarqube_1
+docker start nexus jenkins-controller
 # or start them automatically once and for all:
 systemctl --user enable --now podman-restart.service
 ```
@@ -348,14 +358,14 @@ systemctl --user enable --now podman-restart.service
 The Jenkins Multibranch Pipeline ([Jenkinsfile](Jenkinsfile)) runs on every push and pull request (GitHub webhook):
 
 ```text
-push ─▶ Configure Maven for Nexus ─▶ Build ─▶ Test ─▶ SonarQube (frontend + backend)
+push ─▶ Configure Maven for Nexus ─▶ Build ─▶ Test
      ─▶ Publish Maven Artifacts to Nexus ─▶ Publish Docker Images to Nexus ─▶ Deliver (pull from Nexus)
 ```
 
 | Stage | What it does with Nexus |
 |---|---|
 | Configure Maven for Nexus | Writes a temporary `settings.xml`: a `mirrorOf=*` mirror to `maven-public` and a `nexus` server entry whose credentials come from the `nexus-credentials` Jenkins credential. |
-| Build / Test / SonarQube | Every dependency and plugin is resolved through `maven-public`. All Maven calls receive `-Drevision=1.0.<BUILD_NUMBER>`. |
+| Build / Test | Every dependency and plugin is resolved through `maven-public`. All Maven calls receive `-Drevision=1.0.<BUILD_NUMBER>`. |
 | Publish Maven Artifacts | `scripts/deploy_to_nexus.sh` runs `mvn deploy` for the 6 services, which uploads JAR and POM to `maven-releases`. |
 | Publish Docker Images | `scripts/publish_docker_to_nexus.sh` builds 7 images and pushes each to `docker-hosted` (`localhost:8082`) with two tags: the version (`1.0.<BUILD_NUMBER>`) and the Git commit SHA. |
 | Deliver | Logs in to `docker-group` (`localhost:8083`), pulls the images of this commit and restarts the stack with `docker compose up --no-build`. On failure it pulls the images of the last successful commit (rollback). |
@@ -544,13 +554,6 @@ The **API Gateway** (Port 8080) routes traffic to the following endpoints:
 - ✅ **Deployment:** Docker-based deploy with health checks and rollback.
 - ✅ **Notifications:** Email alerts on build/deploy status.
 - ✅ **Pipeline Quality:** Declarative pipeline, per-service staging, Credentials Store for secrets.
-
-### SafeZone (Code Quality & Security)
-- ✅ **Setup & Configuration:** SonarQube via Docker Compose, Postgres-backed.
-- ✅ **Integration:** GitHub → Jenkins → SonarQube → Jenkins → GitHub status loop.
-- ✅ **Code Analysis:** Per-service static analysis and vulnerability detection.
-- ✅ **Automation:** Scans triggered automatically on every push and pull request.
-- ✅ **Process:** Mandatory PR review + passing quality gate required before merge.
 
 ### General
 - ✅ **Microservices:** Separated into User, Product, Media, Order, Gateway, and Discovery.

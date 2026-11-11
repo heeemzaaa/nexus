@@ -7,6 +7,8 @@ services:
     ports:
       - "8080:8080"
       - "50000:50000"
+    # secrets used by casc/jenkins.yaml (copy .env.example to .env)
+    env_file: .env
     environment:
       # Jenkins home has the SAME path on the host and in the container. The Docker
       # Pipeline plugin mounts the workspace into each agent container with
@@ -14,9 +16,14 @@ services:
       JENKINS_HOME: ${HOME}/jenkins_home
       # Host path of the Podman socket, mounted into the docker:cli agents (see Jenkinsfile)
       HOST_DOCKER_SOCK: ${XDG_RUNTIME_DIR}/podman/podman.sock
+      # Configuration as Code: the whole Jenkins setup, no setup wizard
+      CASC_JENKINS_CONFIG: /casc/jenkins.yaml
+      JAVA_OPTS: -Djenkins.install.runSetupWizard=false
     volumes:
       - ${HOME}/jenkins_home:${HOME}/jenkins_home
       - ${XDG_RUNTIME_DIR}/podman/podman.sock:/var/run/docker.sock
+      - ./casc:/casc:ro
+      - ./secrets:/secrets:ro
     user: root
     networks:
       - ci-net

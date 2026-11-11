@@ -1,0 +1,13 @@
+# Plugins installed in the Jenkins controller image (see Dockerfile)
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-model-definition
+docker-workflow
+git
+github
+credentials
+credentials-binding
+plain-credentials
+mailer
+junit

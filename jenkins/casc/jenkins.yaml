@@ -1,0 +1,106 @@
+
+jenkins:
+  systemMessage: "Cartify CI: configured by Configuration as Code (jenkins/casc/jenkins.yaml)"
+  numExecutors: 2
+  mode: NORMAL
+
+  # Jenkins login
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: nexus-credentials
+              description: "Nexus (jenkins-ci)"
+              username: "${NEXUS_USERNAME}"
+              password: "${NEXUS_PASSWORD}"
+
+          - string:
+              scope: GLOBAL
+              id: github-token
+              description: "GitHub token (commit status)"
+              secret: "${GITHUB_TOKEN}"
+
+          - file:
+              scope: GLOBAL
+              id: buy01-env-file
+              description: "Application .env"
+              fileName: ".env"
+              secretBytes: "${readFileBase64:/secrets/app.env}"
+          - file:
+              scope: GLOBAL
+              id: ssl-cert
+              description: "Frontend TLS certificate"
+              fileName: "secureCertificate.crt"
+              secretBytes: "${readFileBase64:/secrets/secureCertificate.crt}"
+          - file:
+              scope: GLOBAL
+              id: ssl-key
+              description: "Frontend TLS private key"
+              fileName: "private.key"
+              secretBytes: "${readFileBase64:/secrets/private.key}"
+          - file:
+              scope: GLOBAL
+              id: ssl-passphrase
+              description: "Frontend TLS key passphrase"
+              fileName: "securePassphrase"
+              secretBytes: "${readFileBase64:/secrets/securePassphrase}"
+
+unclassified:
+  location:
+    url: "http://localhost:8080/"
+    adminAddress: "${NOTIFICATION_EMAIL}"
+
+  gitHubPluginConfig:
+    configs:
+      - name: "GitHub"
+        apiUrl: "https://api.github.com"
+        credentialsId: github-token
+        manageHooks: false
+
+  mailer:
+    smtpHost: "${SMTP_HOST}"
+    smtpPort: "${SMTP_PORT}"
+    useSsl: false
+    useTls: true
+    authentication:
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+
+jobs:
+  - script: >
+      pipelineJob('Nexus') {
+        description('Build, test and publish to Nexus')
+        properties {
+          pipelineTriggers {
+            triggers {
+              githubPush()
+            }
+          }
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/heeemzaaa/nexus.git')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }
