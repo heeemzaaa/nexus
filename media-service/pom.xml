@@ -3,6 +3,44 @@
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
+	<distributionManagement>
+		<repository>
+			<id>nexus</id>
+			<url>${nexus-url}/repository/maven-releases/</url>
+		</repository>
+		<snapshotRepository>
+			<id>nexus</id>
+			<url>${nexus-url}/repository/maven-snapshots/</url>
+		</snapshotRepository>
+	</distributionManagement>
+
+	<!-- Resolve dependencies/plugins from Nexus first; Maven Central (super POM) is only tried afterwards -->
+	<repositories>
+		<repository>
+			<id>nexus</id>
+			<url>${nexus-url}/repository/maven-public/</url>
+			<releases>
+				<enabled>true</enabled>
+			</releases>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</repository>
+	</repositories>
+
+	<pluginRepositories>
+		<pluginRepository>
+			<id>nexus</id>
+			<url>${nexus-url}/repository/maven-public/</url>
+			<releases>
+				<enabled>true</enabled>
+			</releases>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</pluginRepository>
+	</pluginRepositories>
+
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
@@ -30,6 +68,7 @@
 	<properties>
 		<java.version>17</java.version>
 		<spring-cloud.version>2025.0.2</spring-cloud.version>
+		<NEXUS_HOST>localhost</NEXUS_HOST>
 		<nexus-url>http://${NEXUS_HOST}:8081</nexus-url>
 	</properties>
 	<dependencies>
@@ -128,17 +167,6 @@
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
-
-	<distributionManagement>
-		<repository>
-			<id>nexus</id>
-			<url>${nexus-url}/repository/maven-releases/</url>
-		</repository>
-		<snapshotRepository>
-			<id>nexus</id>
-			<url>${nexus-url}/repository/maven-snapshots/</url>
-		</snapshotRepository>
-	</distributionManagement>
 
 	<build>
 		<plugins>
