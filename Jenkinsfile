@@ -10,6 +10,8 @@ pipeline {
         NEXUS_DOCKER_REGISTRY_HOST = 'localhost'
         // Version of every Maven artifact and Docker image built by this run (read by scripts/*.sh)
         REVISION = "1.0.${env.BUILD_NUMBER}"
+        // Nexus login for every stage (anonymous access is disabled): gives NEXUS_USR and NEXUS_PSW
+        NEXUS = credentials('nexus-credentials')
     }
 
     stages {
@@ -26,8 +28,8 @@ pipeline {
     <servers>
         <server>
             <id>nexus</id>
-            <username>${env.NEXUS_USERNAME}</username>
-            <password>${env.NEXUS_PASSWORD}</password>
+            <username>${env.NEXUS_USR}</username>
+            <password>${env.NEXUS_PSW}</password>
         </server>
     </servers>
 </settings>
@@ -106,9 +108,7 @@ pipeline {
                 }
             }
             steps {
-                withCredentials([usernamePassword(credentialsId: 'nexus-credentials', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
-                    sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/deploy_to_nexus.sh'
-                }
+                sh 'MAVEN_SETTINGS="$WORKSPACE/.maven-settings.xml" NEXUS_HOST="$NEXUS_HOST" ./scripts/deploy_to_nexus.sh'
             }
         }
 
